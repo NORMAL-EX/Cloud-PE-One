@@ -12,6 +12,7 @@ Cloud-PE 的全新客户端
 ![React](https://img.shields.io/badge/React-%2335495e.svg?style=for-the-badge&logo=React&logoColor=%234FC08D)
 ![Semi Design](https://img.shields.io/badge/-SemiDesign-%230170FE?style=for-the-badge&logo=Semi-Design&logoColor=white)
 
+![App](https://p1.ce-ramos.cn/cloud-pe-one.png)
 # 使用
 包管理器：npm
 
