@@ -1,10 +1,10 @@
 # Cloud-PE-One
 
 > [!CAUTION]
-> Cloud-PE One 目前还处于开发期，还有“启动盘制作”“启动盘升级”“软件升级”功能未完工，且可能还存在未知的Bug，不推荐您下载调试编译使用
+> 由于Cloud-PE项目还处于开发期且Cloud-PE.CN尚未完成备案，所以该软件暂时使用的是CE-RAMOS API，数据信息也全部都为CE-RAMOS，我们将会在2025.9.1前修复这些问题并发布Cloud-PE One正式版
 
 # 介绍
-Cloud-PE 的全新客户端
+Cloud-PE 的全新客户端（软件整体已完成开发）
 
 ![Tauri](https://img.shields.io/badge/Tauri-191970?style=for-the-badge&logo=Tauri&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-%23323330.svg?style=for-the-badge&logo=TypeScript&logoColor=%23F7DF1E)
@@ -31,7 +31,7 @@ cmd /c "start npm run tauri:dev"
 ## 构建
 直接输出二进制可执行文件
 ```batch
-npm run tauri:build
+npm run tauri build
 ```
 
 ## 许可证
