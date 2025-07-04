@@ -6,17 +6,8 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use tauri::command;
-use tokio::time::Duration;
 use url::Url;
-
-// 下载状态结构体
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DownloadStatus {
-    progress: u64,
-    speed: String,
-}
 
 // 插件信息结构体
 #[derive(Clone, Serialize, Deserialize)]
@@ -27,11 +18,6 @@ pub struct PluginInfo {
     author: String,
     describe: String,
     file: String,
-}
-
-// 全局下载状态
-lazy_static::lazy_static! {
-    static ref DOWNLOAD_STATUS: Arc<Mutex<Option<DownloadStatus>>> = Arc::new(Mutex::new(None));
 }
 
 // 从URL的响应头中提取文件名
@@ -79,15 +65,6 @@ pub async fn download_plugin(
     // 使用提供的线程数或默认值
     let thread_count = threads.unwrap_or(8);
 
-    // 重置下载状态
-    {
-        let mut status = DOWNLOAD_STATUS.lock().unwrap();
-        *status = Some(DownloadStatus {
-            progress: 0,
-            speed: "0.00".to_string(),
-        });
-    }
-
     // 解析URL
     let url = Url::parse(&url).map_err(|e| e.to_string())?;
 
@@ -125,7 +102,7 @@ pub async fn download_plugin(
 
     // 如果文件大小为0或无法确定，使用单线程下载
     if total_size == 0 {
-        return download_single_thread(url.as_str(), &file_path, total_size).await;
+        return download_single_thread(url.as_str(), &file_path).await;
     }
 
     // 使用多线程下载
@@ -136,71 +113,17 @@ pub async fn download_plugin(
 async fn download_single_thread(
     url: &str,
     file_path: &Path,
-    total_size: u64,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
     let response = client.get(url).send().await.map_err(|e| e.to_string())?;
     let mut file = File::create(file_path).map_err(|e| e.to_string())?;
-    let downloaded = Arc::new(Mutex::new(0u64)); // 使用原子引用计数
     let mut stream = response.bytes_stream();
-
-    // 创建状态监控线程
-    let downloaded_clone = Arc::clone(&downloaded);
-    let status_updater = tokio::spawn(async move {
-        let mut last_downloaded = 0u64;
-        let mut last_time = std::time::Instant::now();
-
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let current_downloaded = *downloaded_clone.lock().unwrap();
-            let current_time = std::time::Instant::now();
-            let elapsed = current_time.duration_since(last_time).as_secs_f64();
-
-            if elapsed > 0.0 {
-                let speed =
-                    (current_downloaded - last_downloaded) as f64 / elapsed / 1024.0 / 1024.0;
-                let progress = if total_size > 0 {
-                    (current_downloaded * 100) / total_size
-                } else {
-                    0
-                };
-
-                // 更新全局状态（使用小作用域）
-                {
-                    let mut status = DOWNLOAD_STATUS.lock().unwrap();
-                    *status = Some(DownloadStatus {
-                        progress,
-                        speed: format!("{:.2}", speed),
-                    });
-                }
-
-                last_downloaded = current_downloaded;
-                last_time = current_time;
-            }
-        }
-    });
 
     // 下载文件
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).map_err(|e| e.to_string())?;
-
-        let mut downloaded_guard = downloaded.lock().unwrap();
-        *downloaded_guard += chunk.len() as u64;
     }
-
-    // 下载完成，更新状态为100%
-    {
-        let mut status = DOWNLOAD_STATUS.lock().unwrap();
-        *status = Some(DownloadStatus {
-            progress: 100,
-            speed: "0.00".to_string(),
-        });
-    }
-
-    // 取消状态监控线程
-    status_updater.abort();
 
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -224,46 +147,6 @@ async fn download_multi_thread(
     let mut handles = vec![];
     let client = reqwest::Client::new();
 
-    // 创建共享的下载进度
-    let downloaded = Arc::new(Mutex::new(0u64));
-
-    // 启动状态监控线程
-    let downloaded_clone = Arc::clone(&downloaded);
-    let status_updater = tokio::spawn(async move {
-        let mut last_downloaded = 0u64;
-        let mut last_time = std::time::Instant::now();
-
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let current_downloaded = *downloaded_clone.lock().unwrap();
-            let current_time = std::time::Instant::now();
-            let elapsed = current_time.duration_since(last_time).as_secs_f64();
-
-            if elapsed > 0.0 {
-                let speed =
-                    (current_downloaded - last_downloaded) as f64 / elapsed / 1024.0 / 1024.0;
-                let progress = if total_size > 0 {
-                    (current_downloaded * 100) / total_size
-                } else {
-                    0
-                };
-
-                // 更新全局状态（使用小作用域）
-                {
-                    let mut status = DOWNLOAD_STATUS.lock().unwrap();
-                    *status = Some(DownloadStatus {
-                        progress,
-                        speed: format!("{:.2}", speed),
-                    });
-                }
-
-                last_downloaded = current_downloaded;
-                last_time = current_time;
-            }
-        }
-    });
-
     // 启动下载线程
     for i in 0..thread_count {
         let start = i as u64 * chunk_size;
@@ -276,7 +159,6 @@ async fn download_multi_thread(
         let client = client.clone();
         let url = url.to_string();
         let temp_file = temp_dir.join(format!("part_{}", i));
-        let downloaded = Arc::clone(&downloaded);
 
         let handle = tokio::spawn(async move {
             let mut file = File::create(&temp_file).map_err(|e| e.to_string())?;
@@ -291,9 +173,6 @@ async fn download_multi_thread(
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(|e| e.to_string())?;
                 file.write_all(&chunk).map_err(|e| e.to_string())?;
-
-                let mut downloaded_guard = downloaded.lock().unwrap();
-                *downloaded_guard += chunk.len() as u64;
             }
 
             Ok::<_, String>(())
@@ -318,25 +197,7 @@ async fn download_multi_thread(
     // 清理临时文件
     fs::remove_dir_all(&temp_dir).map_err(|e| e.to_string())?;
 
-    // 下载完成，更新状态为100%
-    {
-        let mut status = DOWNLOAD_STATUS.lock().unwrap();
-        *status = Some(DownloadStatus {
-            progress: 100,
-            speed: "0.00".to_string(),
-        });
-    }
-
-    // 取消状态监控线程
-    status_updater.abort();
-
     Ok(file_path.to_string_lossy().to_string())
-}
-
-// 获取插件下载状态
-#[command]
-pub fn get_plugin_download_status() -> Option<DownloadStatus> {
-    DOWNLOAD_STATUS.lock().unwrap().clone()
 }
 
 // 获取插件文件列表

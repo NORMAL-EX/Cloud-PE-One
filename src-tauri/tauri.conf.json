@@ -36,7 +36,8 @@
     ]
   },
   "plugins": {
-    "store": null
+    "store": null,
+    "process": { "all": true }
   }
 
 }

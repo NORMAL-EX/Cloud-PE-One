@@ -5,16 +5,17 @@
 
 mod lib;
 use lib::set_config;
+mod downloader;
 mod plugins;
 mod updater;
-mod downloader; // 新增下载器模块
+mod usb_api;
 
+use downloader::download_file_with_progress;
 use plugins::{
-    disable_plugin, download_plugin, enable_plugin, get_plugin_download_status, get_plugin_files,
+    disable_plugin, download_plugin, enable_plugin, get_plugin_files,
 };
 use tauri::Manager;
 use updater::{download_update, get_app_download_status, install_update};
-use downloader::{download_file_with_progress, start_download_server}; // 导入下载器功能
 
 use std::process::Command;
 
@@ -30,7 +31,6 @@ fn main() {
             install_update,
             // 插件相关命令
             download_plugin,
-            get_plugin_download_status,
             get_plugin_files,
             enable_plugin,
             disable_plugin,
@@ -38,21 +38,23 @@ fn main() {
             check_boot_drive,
             get_all_drives,
             read_boot_drive_version,
+            get_drive_info,
             // 文件操作相关命令
             download_file_to_path,
             // 打开链接
-            open_link_os
+            open_link_os,
+            // USB设备相关命令
+            usb_api::get_usb_devices,
+            usb_api::get_system_boot_mode,
+            usb_api::deploy_to_usb,
+            usb_api::restart_app,
+            usb_api::close_app,
+            // 新增Ventoy安装命令
+            install_ventoy
         ])
         .setup(|app| {
             set_config(app);
-            
-            // 在 setup 中启动下载状态服务器
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = start_download_server().await {
-                    eprintln!("启动下载服务器失败: {}", e);
-                }
-            });
-            
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
@@ -70,20 +72,75 @@ fn open_link_os(url: String) -> Result<(), String> {
     Command::new("explorer.exe")
         .arg(url)
         .spawn()
-        .map_err(|e| format!("无法执行 explorer.exe: {}", e))?;
+        .map_err(|e| format!("无法在外部浏览器中打开链接"))?;
     Ok(())
+}
+
+// 安装Ventoy
+#[tauri::command]
+async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String, String> {
+    use std::path::Path;
+    
+    // Ventoy可执行文件路径
+    let ventoy_exe = "E:\\ventoy\\Ventoy2Disk.exe";
+    
+    // 检查Ventoy可执行文件是否存在
+    if !Path::new(ventoy_exe).exists() {
+        return Err("Ventoy程序不存在，请确保已正确安装".to_string());
+    }
+    
+    // 构建命令参数
+    let mut args = vec![
+        "VTOYCLI".to_string(),
+        "/I".to_string(),
+        format!("/PhyDrive:{}", physical_drive),
+        "/NOUSBCheck".to_string(),
+    ];
+    
+    // 如果是UEFI模式，添加GPT参数
+    if boot_mode.to_uppercase() == "UEFI" {
+        args.push("/GPT".to_string());
+    }
+    
+    println!("执行Ventoy安装命令: {} {:?}", ventoy_exe, args);
+    
+    // 执行命令
+    match Command::new(ventoy_exe)
+        .args(&args)
+        .output()
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            
+            println!("Ventoy安装输出: {}", stdout);
+            if !stderr.is_empty() {
+                println!("Ventoy安装错误: {}", stderr);
+            }
+            
+            if output.status.success() {
+                // 等待一下让系统识别新的Ventoy设备
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                Ok("Ventoy安装成功".to_string())
+            } else {
+                Err(format!("Ventoy安装失败: {}", stderr))
+            }
+        }
+        Err(e) => {
+            Err(format!("执行Ventoy命令失败: {}", e))
+        }
+    }
 }
 
 // 检测启动盘
 #[tauri::command]
 async fn check_boot_drive() -> Result<Option<BootDriveInfo>, String> {
-    use std::fs;
     use std::path::Path;
     let drives = get_all_drives().await?;
     for drive in drives {
         let config_path = format!("{}\\cloud-pe\\config.json", drive);
         let iso_path = format!("{}\\Cloud-PE.iso", drive);
-        
+
         // 检查两个文件是否同时存在
         if Path::new(&config_path).exists() && Path::new(&iso_path).exists() {
             match read_boot_drive_version(drive.clone()).await {
@@ -100,6 +157,32 @@ async fn check_boot_drive() -> Result<Option<BootDriveInfo>, String> {
     }
     Ok(None)
 }
+
+// 响应启动盘更改
+#[tauri::command]
+async fn get_drive_info(drive_letter: String) -> Result<GetDriveInfo, String> {
+   use std::path::Path;
+   
+   let config_path = format!("{}\\cloud-pe\\config.json", drive_letter);
+   let iso_path = format!("{}\\Cloud-PE.iso", drive_letter);
+   
+   // 检查两个文件是否同时存在
+   let is_boot_drive = Path::new(&config_path).exists() && Path::new(&iso_path).exists();
+   
+   Ok(GetDriveInfo {
+       letter: drive_letter,
+       is_boot_drive,
+   })
+}
+
+// 数据类型定义
+#[derive(serde::Serialize)]
+struct GetDriveInfo {
+   letter: String,
+   #[serde(rename = "isBootDrive")]
+   is_boot_drive: bool,
+}
+   
 
 // 获取所有驱动器
 #[tauri::command]
@@ -162,13 +245,14 @@ async fn read_boot_drive_version(drive_letter: String) -> Result<String, String>
 // 下载文件到指定路径
 #[tauri::command]
 async fn download_file_to_path(
-    url: String, 
-    save_path: String, 
-    thread: Option<u8>
+    app: tauri::AppHandle,
+    url: String,
+    save_path: String,
+    thread: Option<u8>,
 ) -> Result<String, String> {
     let thread_count = thread.unwrap_or(8);
-    
-    match download_file_with_progress(url, save_path, thread_count).await {
+
+    match download_file_with_progress(app, url, save_path, thread_count).await {
         Ok(file_path) => Ok(file_path),
         Err(e) => Err(format!("下载失败: {}", e)),
     }

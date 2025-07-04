@@ -41,7 +41,7 @@ async fn extract_filename(url: &Url) -> Result<String> {
     Ok(url
         .path_segments()
         .and_then(|segments| segments.last())
-        .unwrap_or("unknown_file")
+        .unwrap_or("")
         .to_string())
 }
 

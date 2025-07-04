@@ -4,8 +4,7 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 use std::{env, path::PathBuf};
-use tauri::{Manager, Wry};
-use tauri_plugin_store::{Store, StoreExt};
+use tauri_plugin_store::StoreExt;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DriveInfo {
@@ -62,10 +61,8 @@ fn get_all_drives() -> Vec<String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        // 在非Windows系统上模拟一些驱动器用于测试
-        drives.push("C:".to_string());
-        drives.push("D:".to_string());
-        drives.push("E:".to_string());
+        //我草泥馬，傻逼manus
+
     }
 
     drives
@@ -121,13 +118,6 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
-// 打开开发者工具
-#[tauri::command]
-fn open_devtools(_window: tauri::Window) {
-    #[cfg(debug_assertions)]
-    println!("114514");
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -151,7 +141,7 @@ pub fn run() {
             check_boot_drive,
             check_network_connection,
             exit_app,
-            open_devtools,
+
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -172,7 +162,7 @@ pub fn set_config(app: &tauri::App) {
         thread: 4,
         path: format!("{}\\temp", dir_string),
     };
-   /*  let stores = app.app_handle().state::<StoreCollection<Wry>>();
+    /*  let stores = app.app_handle().state::<StoreCollection<Wry>>();
     let path = PathBuf::from("store.bin");
 
     with_store(app.app_handle().clone(), stores, path, |store| {
@@ -190,15 +180,15 @@ pub fn set_config(app: &tauri::App) {
         Ok(())
     })
     .expect("0x6"); */
-     let store = app.store("store.json").expect("Failed to open store");
-         match store.get("thread") {
-            None => {
-                store.set("thread".to_string(), json!({ "thread": 4 }));
-                store.set("path".to_string(), json!({ "path": config.path }));
-                store.save().expect("Failed to save store");
-            }
-            Some(_) => {
-                println!("{}", store.get("thread").unwrap())
-            }
+    let store = app.store("store.json").expect("Failed to open store");
+    match store.get("thread") {
+        None => {
+            store.set("thread".to_string(), json!({ "thread": 4 }));
+            store.set("path".to_string(), json!({ "path": config.path }));
+            store.save().expect("Failed to save store");
         }
+        Some(_) => {
+            println!("{}", store.get("thread").unwrap())
+        }
+    }
 }

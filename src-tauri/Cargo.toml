@@ -35,6 +35,18 @@ tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2.0"
 anyhow = "1.0"
-
-# HTTP服务器
-warp = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.21"
+winapi = { version = "0.3", features = [
+    "winnt",
+    "fileapi",
+    "handleapi",
+    "winbase",
+    "minwindef",
+    "winioctl",
+    "ioapiset",
+    "winerror",
+    "winreg"
+] }
+zip = "0.6"
+encoding_rs = "0.8"

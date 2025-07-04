@@ -9,6 +9,12 @@ import { save as dialogSave } from "@tauri-apps/plugin-dialog";
 type CommandArgs = Record<string, unknown>;
 type CommandResult<T> = T;
 
+// 定义驱动器信息类型
+export interface DriveInfo {
+  letter: string;
+  isBootDrive: boolean;
+}
+
 // 导出API函数
 export const invoke = async <T = unknown>(
   command: string,
@@ -117,6 +123,18 @@ export const readBootDriveVersion = async (
     return await tauriInvoke("read_boot_drive_version", { driveLetter });
   } catch (error) {
     console.error(`读取启动盘版本失败:`, error);
+    throw error;
+  }
+};
+
+// 获取驱动器信息
+export const getDriveInfo = async (
+  driveLetter: string
+): Promise<DriveInfo> => {
+  try {
+    return await tauriInvoke("get_drive_info", { driveLetter });
+  } catch (error) {
+    console.error(`获取驱动器信息失败:`, error);
     throw error;
   }
 };

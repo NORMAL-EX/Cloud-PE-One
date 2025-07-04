@@ -6,12 +6,14 @@ export type DownloadThreads = 8 | 16 | 32;
 export interface AppConfig {
   themeMode: ThemeMode;
   downloadThreads: DownloadThreads;
+  enablePluginWebSearch?: boolean; // 新增配置项
 }
 
 // 默认配置
 const defaultConfig: AppConfig = {
   themeMode: 'system',
   downloadThreads: 8,
+  enablePluginWebSearch: false, // 默认关闭
 };
 
 // 获取配置文件路径
@@ -39,13 +41,26 @@ export const loadConfig = async (): Promise<AppConfig> => {
       }
       
       const configContent = await readTextFile(configPath);
-      return JSON.parse(configContent) as AppConfig;
+      const loadedConfig = JSON.parse(configContent) as AppConfig;
+      
+      // 确保新配置项有默认值（兼容旧配置文件）
+      return {
+        ...defaultConfig,
+        ...loadedConfig,
+        enablePluginWebSearch: loadedConfig.enablePluginWebSearch ?? false
+      };
     } catch (error) {
       // 开发环境下的回退方案
       console.warn('使用默认配置:', error);
       const savedConfig = localStorage.getItem('app-config');
       if (savedConfig) {
-        return JSON.parse(savedConfig) as AppConfig;
+        const parsedConfig = JSON.parse(savedConfig) as AppConfig;
+        // 确保新配置项有默认值
+        return {
+          ...defaultConfig,
+          ...parsedConfig,
+          enablePluginWebSearch: parsedConfig.enablePluginWebSearch ?? false
+        };
       }
       return defaultConfig;
     }
@@ -98,4 +113,3 @@ export const applyTheme = (mode: ThemeMode): void => {
     document.body.classList.remove('semi-always-dark');
   }
 };
-

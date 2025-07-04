@@ -5,11 +5,11 @@ import AppLayout from './components/Layout';
 import HomePage from './pages/HomePage';
 import SettingsPage from './pages/SettingsPage';
 import DocsPage from './pages/DocsPage';
-import PlaceholderPage from './pages/PlaceholderPage';
 import PluginsMarketPage from './pages/PluginsMarketPage';
 import PluginsManagePage from './pages/PluginsManagePage';
 import UpgradeBootDrivePage from './pages/UpgradeBootDrivePage';
 import CreateIsoPage from './pages/CreateIsoPage';
+import CreatStartupDisk from './pages/CreatStartupDisk';
 import UpdateNotification from './components/UpdateNotification';
 import './App.css';
 
@@ -64,11 +64,11 @@ const AppContent: React.FC = () => {
       case 'docs':
         return <DocsPage />;
       case 'create-boot-drive':
-        return <PlaceholderPage title="制作启动盘" />;
+        return <CreatStartupDisk onNavigate={handleNavigate}/>;
       case 'create-iso':
         return <CreateIsoPage />;
       case 'upgrade-boot-drive':
-        return <UpgradeBootDrivePage />;
+        return <UpgradeBootDrivePage onNavigate={handleNavigate}/>;
       case 'download-plugins':
         return <PluginsMarketPage />;
       case 'manage-plugins':

@@ -1,12 +1,11 @@
 import React from 'react';
-import { Typography, Select, Card, Collapse, Button } from '@douyinfe/semi-ui';
+import { Typography, Select, Card, Collapse, Button, Switch } from '@douyinfe/semi-ui';
 import { useAppContext } from '../utils/AppContext';
 import type { ThemeMode, DownloadThreads } from '../utils/theme';
 import { openUrl } from '../utils/tauriApiWrapper';
-import { openDevTools } from '../utils/system';
 import { IconGithubLogo } from '@douyinfe/semi-icons';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 const { Option } = Select;
 
 const SettingsPage: React.FC = () => {
@@ -20,13 +19,13 @@ const SettingsPage: React.FC = () => {
     updateConfig({ downloadThreads: Number(value) as DownloadThreads });
   };
 
+  const handleWebSearchToggle = (checked: boolean) => {
+    updateConfig({ enablePluginWebSearch: checked });
+  };
+
   // 这个函数已经存在，用于在外部浏览器打开URL
   const handleOpenLink = async (url: string) => {
     await openUrl(url);
-  };
-
-  const handleOpenDevTools = async () => {
-    await openDevTools();
   };
 
   return (
@@ -58,7 +57,7 @@ const SettingsPage: React.FC = () => {
                 </Select>
               </div>
 
-              <div>
+              <div style={{ marginBottom: 16 }}>
                 颜色模式：
                 <Select
                   value={config.themeMode}
@@ -69,6 +68,18 @@ const SettingsPage: React.FC = () => {
                   <Option value="light">浅色模式</Option>
                   <Option value="dark">深色模式</Option>
                 </Select>
+              </div>
+
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                gap: 8
+              }}>
+                开启插件市场“在 Web 上搜索”按钮：
+                <Switch 
+                  checked={config.enablePluginWebSearch || false}
+                  onChange={handleWebSearchToggle}
+                />
               </div>
             </div>
           </Collapse.Panel>
@@ -88,14 +99,14 @@ const SettingsPage: React.FC = () => {
                 }}>
                   <Paragraph>
                     <div style={{ marginBottom: 8 }}>
-                      <Text>由开发者 <strong>Hello,World</strong> 与 <strong>RUZ-EX</strong> 共同开发并发布</Text>
+                      <Text>由开发者 <strong>RUZ-EX</strong> 与 <strong>Hello,World!</strong> 共同开发并发布</Text>
                     </div>
                     <div style={{ marginBottom: 8 }}>
                       <Text strong>技术栈:</Text>
                       <Text> Tauri, Rust, TypeScript, Vite, React, Semi Design</Text>
                     </div>
                     <div>
-                      <Text strong>Copyright © 2026-现在 Cloud-PE Dev.</Text>
+                      <Text strong>Copyright © 2025-现在 Cloud-PE Dev.</Text>
                     </div>
                   </Paragraph>
                 </Card>

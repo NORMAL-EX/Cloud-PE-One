@@ -52,6 +52,18 @@ interface AppContextType {
   // 新增ISO生成状态
   isGeneratingIso: boolean;
   setIsGeneratingIso: (generating: boolean) => void;
+  // 新增启动盘制作状态
+  isCreatingBootDrive: boolean;
+  setIsCreatingBootDrive: (creating: boolean) => void;
+  // 新增启动盘升级状态
+  isUpgradingBootDrive: boolean;
+  setIsUpgradingBootDrive: (upgrading: boolean) => void;
+  // 新增：插件下载状态管理
+  downloadingPlugins: Record<string, boolean>;
+  setPluginDownloading: (pluginId: string, isDownloading: boolean) => void;
+  clearAllDownloadingPlugins: () => void;
+  // 新增：重新加载启动盘函数
+  reloadBootDrive: (driveLetter: string) => Promise<void>;
   // 原有方法
   setUpdateDialogVisible: (visible: boolean) => void;
   updateConfig: (newConfig: Partial<AppConfig>) => Promise<void>;
@@ -80,6 +92,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [isNetworkConnected, setNetworkConnected] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [updateDialogVisible, setUpdateDialogVisible] = useState<boolean>(false);
+  // 新增：重新加载标志，用于触发升级检查
+  const [bootDriveReloadTrigger, setBootDriveReloadTrigger] = useState<number>(0);
   
   // 插件数据相关状态
   const [pluginCategories, setPluginCategories] = useState<PluginCategory[]>([]);
@@ -99,6 +113,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // ISO生成状态
   const [isGeneratingIso, setIsGeneratingIso] = useState<boolean>(false);
   
+  // 启动盘制作状态
+  const [isCreatingBootDrive, setIsCreatingBootDrive] = useState<boolean>(false);
+  
+  // 启动盘升级状态
+  const [isUpgradingBootDrive, setIsUpgradingBootDrive] = useState<boolean>(false);
+  
+  // 新增：下载状态管理（持久化到 localStorage）
+  const [downloadingPlugins, setDownloadingPlugins] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('downloadingPlugins');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  
   // 使用更新检查钩子
   const { 
     isUpdateAvailable, 
@@ -106,6 +136,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     updateInfo, 
     error: updateError 
   } = useUpdateCheck();
+
+  // 同步下载状态到 localStorage
+  useEffect(() => {
+    localStorage.setItem('downloadingPlugins', JSON.stringify(downloadingPlugins));
+  }, [downloadingPlugins]);
+
+  // 设置插件下载状态
+  const setPluginDownloading = (pluginId: string, isDownloading: boolean) => {
+    setDownloadingPlugins(prev => {
+      const updated = { ...prev };
+      if (isDownloading) {
+        updated[pluginId] = true;
+      } else {
+        delete updated[pluginId];
+      }
+      return updated;
+    });
+  };
+
+  // 清除所有下载状态
+  const clearAllDownloadingPlugins = () => {
+    setDownloadingPlugins({});
+  };
 
   // 初始化配置
   useEffect(() => {
@@ -195,19 +248,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   }, [searchKeyword, pluginCategories]);
 
-  // 当启动盘状态变化时，读取版本信息
+  // 当启动盘状态变化时，读取版本信息（每次都重新读取，不使用缓存）
   useEffect(() => {
     const loadBootDriveVersion = async () => {
       if (!bootDrive) {
         setBootDriveVersion(null);
-        return;
-      }
-
-      // 检查缓存
-      const cacheKey = `bootDriveVersion_${bootDrive.letter}`;
-      const cachedVersion = localStorage.getItem(cacheKey);
-      if (cachedVersion) {
-        setBootDriveVersion(cachedVersion);
         return;
       }
 
@@ -216,9 +261,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         const { readBootDriveVersion } = await import('./tauriApiWrapper');
         const version = await readBootDriveVersion(bootDrive.letter);
         setBootDriveVersion(version);
-        
-        // 缓存版本信息
-        localStorage.setItem(cacheKey, version);
       } catch (error) {
         console.error('读取启动盘版本失败:', error);
         setBootDriveVersion(null);
@@ -230,7 +272,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     loadBootDriveVersion();
   }, [bootDrive]);
 
-  // 检查启动盘升级
+  // 检查启动盘升级（移除缓存逻辑，增加重新加载触发器）
   useEffect(() => {
     const checkBootDriveUpdate = async () => {
       // 如果没有启动盘、启动盘版本为空，或者启动盘字母为空字符串，则不检查升级
@@ -239,31 +281,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         return;
       }
 
-      // 检查缓存
-      const cacheKey = 'bootDriveUpdateInfo';
-      const cachedData = localStorage.getItem(cacheKey);
-      const cacheTime = localStorage.getItem(`${cacheKey}_time`);
-      const now = Date.now();
-      
-      // 缓存有效期为1小时
-      if (cachedData && cacheTime && (now - parseInt(cacheTime)) < 3600000) {
-        try {
-          const updateInfo = JSON.parse(cachedData);
-          const needsUpdate = compareVersions(bootDriveVersion, updateInfo.cloudPeVersion);
-          setBootDriveUpdateAvailable(needsUpdate);
-          return;
-        } catch (error) {
-          console.error('解析缓存的升级信息失败:', error);
-        }
-      }
-
       try {
         setIsCheckingBootDriveUpdate(true);
+        // 每次都重新获取升级信息，不使用缓存
         const updateInfo = await getBootDriveUpdateInfo();
-        
-        // 缓存升级信息
-        localStorage.setItem(cacheKey, JSON.stringify(updateInfo));
-        localStorage.setItem(`${cacheKey}_time`, now.toString());
         
         const needsUpdate = compareVersions(bootDriveVersion, updateInfo.cloudPeVersion);
         setBootDriveUpdateAvailable(needsUpdate);
@@ -276,7 +297,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
 
     checkBootDriveUpdate();
-  }, [bootDrive, bootDriveVersion]);
+  }, [bootDrive, bootDriveVersion, bootDriveReloadTrigger]); // 添加 bootDriveReloadTrigger 依赖
 
   // 监听启动盘升级Banner关闭状态变化
   useEffect(() => {
@@ -325,6 +346,45 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   }, [isUpdateAvailable, updateInfo]);
 
+  // 重新加载指定启动盘和版本信息
+  const reloadBootDrive = async (driveLetter: string) => {
+    try {
+      // 首先获取启动盘信息
+      const { getDriveInfo, readBootDriveVersion } = await import('./tauriApiWrapper');
+      const driveInfo = await getDriveInfo(driveLetter);
+      
+      // 设置启动盘信息
+      setBootDrive(driveInfo);
+      
+      // 重新读取版本信息
+      if (driveInfo) {
+        setIsLoadingBootDriveVersion(true);
+        try {
+          const version = await readBootDriveVersion(driveInfo.letter);
+          setBootDriveVersion(version);
+        } catch (error) {
+          console.error('读取启动盘版本失败:', error);
+          setBootDriveVersion(null);
+        } finally {
+          setIsLoadingBootDriveVersion(false);
+        }
+      } else {
+        setBootDriveVersion(null);
+      }
+      
+      // 触发启动盘升级检查
+      setBootDriveReloadTrigger(prev => prev + 1);
+      
+      // 重置升级Banner关闭状态，让用户看到新的升级提示
+      setBootDriveUpdateBannerClosed(false);
+      
+    } catch (error) {
+      console.error('重新加载启动盘失败:', error);
+      setBootDrive(null);
+      setBootDriveVersion(null);
+    }
+  };
+
   // 更新配置
   const updateConfig = async (newConfig: Partial<AppConfig>) => {
     const updatedConfig = { ...config, ...newConfig };
@@ -369,6 +429,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // 新增ISO生成状态
     isGeneratingIso,
     setIsGeneratingIso,
+    // 新增启动盘制作状态
+    isCreatingBootDrive,
+    setIsCreatingBootDrive,
+    // 新增启动盘升级状态
+    isUpgradingBootDrive,
+    setIsUpgradingBootDrive,
+    // 新增插件下载状态管理
+    downloadingPlugins,
+    setPluginDownloading,
+    clearAllDownloadingPlugins,
+    // 新增重新加载启动盘函数
+    reloadBootDrive,
     // 原有方法
     setUpdateDialogVisible,
     updateConfig,

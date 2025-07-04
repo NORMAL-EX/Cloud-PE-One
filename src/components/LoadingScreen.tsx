@@ -3,7 +3,6 @@ import { Spin, Modal, Button, Typography } from '@douyinfe/semi-ui';
 import { IconAlertTriangle } from '@douyinfe/semi-icons';
 import { checkNetworkConnection, checkBootDrive, exitApp } from '../utils/system';
 import { useAppContext } from '../utils/AppContext';
-import { closeWindow } from '../utils/tauriApiWrapper';
 
 const { Text } = Typography;
 
@@ -46,10 +45,6 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete }) => {
     initializeApp();
   }, [onLoadingComplete, setBootDrive, setNetworkConnected, setIsLoading]);
 
-  const handleConfirmExit = async () => {
-    closeWindow()
-  };
-
   return (
     <div style={{
       width: '100%',
@@ -85,7 +80,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete }) => {
             <Button 
               type="danger" 
               theme="solid" 
-              onClick={handleConfirmExit}
+              onClick={exitApp}
             >
               确定
             </Button>

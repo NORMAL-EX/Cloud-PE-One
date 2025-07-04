@@ -14,12 +14,10 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const { 
     bootDrive, 
     bootDriveVersion,
-    isLoadingBootDriveVersion,
     bootDriveUpdateAvailable,
     bootDriveUpdateBannerClosed,
     setBootDriveUpdateBannerClosed,
     notification, 
-    isLoadingNotification,
     notificationClosed // 移动到组件内部
   } = useAppContext();
 

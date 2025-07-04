@@ -26,12 +26,6 @@ export interface PluginsResponse {
   data: PluginCategory[];
 }
 
-// 下载状态接口
-interface DownloadStatus {
-  progress: number;
-  speed: string;
-}
-
 // 获取插件列表
 export const getPlugins = async (): Promise<PluginCategory[]> => {
   try {
@@ -48,7 +42,6 @@ export const downloadPlugin = async (
   url: string,
   fileName: string,
   bootDriveLetter: string | null, // 新增启动盘盘符参数
-  onProgress?: (progress: number, speed: string) => void,
   threads: number = 8
 ): Promise<string> => {
   try {
@@ -65,31 +58,6 @@ export const downloadPlugin = async (
       fileName,
       threads
     });
-    
-    // 如果提供了进度回调，启动进度监控
-    if (onProgress) {
-      const progressInterval = setInterval(async () => {
-        try {
-          const status = await invoke('get_plugin_download_status') as DownloadStatus | null;
-          if (status) {
-            const { progress, speed } = status;
-            onProgress(progress, speed);
-
-            // 如果下载完成，清除定时器
-            if (progress >= 100) {
-              clearInterval(progressInterval);
-            }
-          }
-        } catch (err) {
-          console.error('获取下载状态失败:', err);
-        }
-      }, 1000);
-      
-      // 设置超时清理定时器（防止内存泄漏）
-      setTimeout(() => {
-        clearInterval(progressInterval);
-      }, 300000); // 5分钟超时
-    }
     
     return filePath as string;
   } catch (error) {
@@ -142,15 +110,5 @@ export const disablePlugin = async (driveLetter: string, fileName: string): Prom
   } catch (error) {
     console.error('禁用插件失败:', error);
     throw new Error('禁用插件失败');
-  }
-};
-
-// 获取下载状态（辅助函数）
-export const getDownloadStatus = async (): Promise<DownloadStatus | null> => {
-  try {
-    return await invoke('get_plugin_download_status') as DownloadStatus | null;
-  } catch (error) {
-    console.error('获取下载状态失败:', error);
-    return null;
   }
 };

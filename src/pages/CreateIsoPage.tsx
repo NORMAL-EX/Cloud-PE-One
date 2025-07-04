@@ -16,6 +16,7 @@ const { Title, Text } = Typography;
 const CreateIsoPage: React.FC = () => {
   const { config, setIsGeneratingIso } = useAppContext();
   const [downloading, setDownloading] = useState<boolean>(false);
+  const [buttonLoading, setButtonLoading] = useState<boolean>(false); // 新增：按钮loading状态
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo>({
     progress: "0%",
     speed: "0.00MB/s",
@@ -44,6 +45,7 @@ const CreateIsoPage: React.FC = () => {
           if (!info.downloading && downloading && downloadStartedRef.current) {
             console.log('下载完成，停止监听');
             setDownloading(false);
+            setButtonLoading(false); // 重置按钮loading状态
             downloadStartedRef.current = false;
             monitoringRef.current = false;
             
@@ -159,13 +161,16 @@ const CreateIsoPage: React.FC = () => {
   };
 
   const handleStartGenerate = async () => {
-    if (downloading) {
+    if (downloading || buttonLoading) { // 检查按钮loading状态
       Notification.warning({
         title: '提示',
         content: '已有下载任务在进行中',
       });
       return;
     }
+
+    // 立即设置按钮为loading状态
+    setButtonLoading(true);
 
     try {
       console.log('开始生成ISO镜像...');
@@ -179,6 +184,7 @@ const CreateIsoPage: React.FC = () => {
         console.log('文件保存路径:', filePath);
       } catch (dialogError) {
         console.error('文件保存对话框出错:', dialogError);
+        setButtonLoading(false); // 重置按钮loading状态
         Notification.error({
           title: '操作失败',
           content: '无法打开文件保存对话框',
@@ -189,6 +195,7 @@ const CreateIsoPage: React.FC = () => {
       
       if (!filePath) {
         console.log('用户取消了文件保存');
+        setButtonLoading(false); // 重置按钮loading状态
         return;
       }
 
@@ -202,7 +209,8 @@ const CreateIsoPage: React.FC = () => {
         console.log('下载链接获取成功:', downloadLink);
       } catch (linkError) {
         console.error('获取下载链接失败:', linkError);
-        // 重置所有状态，不要设置下载状态
+        // 重置所有状态，包括按钮loading状态
+        setButtonLoading(false);
         setSavePath('');
         setDownloadInfo({
           progress: "0%",
@@ -252,8 +260,9 @@ const CreateIsoPage: React.FC = () => {
         
       } catch (downloadError) {
         console.error('下载文件失败:', downloadError);
-        // 重置所有状态
+        // 重置所有状态，包括按钮loading状态
         setDownloading(false);
+        setButtonLoading(false);
         downloadStartedRef.current = false;
         monitoringRef.current = false;
         setSavePath('');
@@ -275,8 +284,9 @@ const CreateIsoPage: React.FC = () => {
 
     } catch (error) {
       console.error('生成ISO镜像失败 - 未预期的错误:', error);
-      // 重置所有状态
+      // 重置所有状态，包括按钮loading状态
       setDownloading(false);
+      setButtonLoading(false);
       downloadStartedRef.current = false;
       monitoringRef.current = false;
       setSavePath('');
@@ -356,7 +366,8 @@ const CreateIsoPage: React.FC = () => {
       <Title heading={2} style={{ marginBottom: 32, textAlign: 'center' }}>生成ISO镜像</Title>
       <Button 
         type="primary"
-        icon={<IconDownload />}
+        icon={buttonLoading ? undefined : <IconDownload />} // 当loading时不显示图标
+        loading={buttonLoading} // 设置loading状态
         onClick={handleStartGenerate}
       >
         开始生成

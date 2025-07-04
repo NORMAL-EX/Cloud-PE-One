@@ -37,7 +37,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
     pluginCategories, 
     isLoadingPlugins, 
     pluginsError,
-    isGeneratingIso
+    isGeneratingIso,
+    isCreatingBootDrive,
+    isUpgradingBootDrive
   } = useAppContext();
   
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
@@ -80,6 +82,30 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
       return;
     }
     
+    // 检查是否正在制作启动盘
+    if (isCreatingBootDrive) {
+      Notification.warning({
+        title: '提示',
+        content: '制作启动盘中，不可切换页面！',
+        duration: 3
+      });
+      // 阻止切换时，恢复之前的选中状态
+      setSelectedKeys([currentPage]);
+      return;
+    }
+    
+    // 检查是否正在升级启动盘
+    if (isUpgradingBootDrive) {
+      Notification.warning({
+        title: '提示',
+        content: '升级启动盘中，不可切换页面！',
+        duration: 3
+      });
+      // 阻止切换时，恢复之前的选中状态
+      setSelectedKeys([currentPage]);
+      return;
+    }
+    
     // 更新选中状态
     setSelectedKeys([itemKey]);
     
@@ -115,6 +141,26 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
         Notification.warning({
           title: '提示',
           content: '正在生成ISO镜像中，不可切换页面！',
+          duration: 3
+        });
+        return;
+      }
+      
+      // 检查是否正在制作启动盘
+      if (isCreatingBootDrive) {
+        Notification.warning({
+          title: '提示',
+          content: '制作启动盘中，不可切换页面！',
+          duration: 3
+        });
+        return;
+      }
+      
+      // 检查是否正在升级启动盘
+      if (isUpgradingBootDrive) {
+        Notification.warning({
+          title: '提示',
+          content: '升级启动盘中，不可切换页面！',
           duration: 3
         });
         return;

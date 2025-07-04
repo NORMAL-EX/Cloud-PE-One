@@ -23,7 +23,11 @@ const DocsPage: React.FC = () => {
   }, []);
 
   return (
-    <div style={{ height: 'calc(100vh - 48px)', position: 'relative' }}>
+    <div style={{ 
+      height: 'calc(100vh - 48px)', 
+      position: 'relative',
+      overflow: 'hidden' // 隐藏整个容器的滚动条
+    }}>
       {loading && (
         <div style={{
           position: 'absolute',
@@ -46,7 +50,7 @@ const DocsPage: React.FC = () => {
         style={{
           width: '100%',
           height: '100%',
-          border: 'none',
+          border: 'none'
         }}
         title="Cloud-PE 文档"
       />
@@ -55,4 +59,3 @@ const DocsPage: React.FC = () => {
 };
 
 export default DocsPage;
-
