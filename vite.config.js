@@ -14,25 +14,11 @@ export default defineConfig({
         // 避免类型检查导致构建失败
         sourcemap: true,
         emptyOutDir: true,
-        rollupOptions: {
-            external: [
-                '@tauri-apps/api',
-                '@tauri-apps/api/tauri',
-                '@tauri-apps/api/window',
-                '@tauri-apps/api/shell',
-                '@tauri-apps/api/path',
-                '@tauri-apps/api/fs'
-            ]
-        }
     },
     // 为 Tauri 开发优化
     clearScreen: false,
     // 使用相对路径
     base: './',
-    // 优化构建
-    optimizeDeps: {
-        exclude: ['@tauri-apps/api']
-    },
     // 解决类型问题
     esbuild: {
         logOverride: { 'this-is-undefined-in-esm': 'silent' }
