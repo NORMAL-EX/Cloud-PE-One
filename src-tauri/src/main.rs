@@ -11,9 +11,7 @@ mod updater;
 mod usb_api;
 
 use downloader::download_file_with_progress;
-use plugins::{
-    disable_plugin, download_plugin, enable_plugin, get_plugin_files,
-};
+use plugins::{disable_plugin, download_plugin, enable_plugin, get_plugin_files};
 use tauri::Manager;
 use updater::{download_update, get_app_download_status, install_update};
 
@@ -50,7 +48,9 @@ fn main() {
             usb_api::restart_app,
             usb_api::close_app,
             // 新增Ventoy安装命令
-            install_ventoy
+            install_ventoy,
+
+            exit_app
         ])
         .setup(|app| {
             set_config(app);
@@ -60,10 +60,16 @@ fn main() {
                 let window = app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn exit_app() {
+    std::process::exit(0);
 }
 
 // 打开链接
@@ -72,7 +78,7 @@ fn open_link_os(url: String) -> Result<(), String> {
     Command::new("explorer.exe")
         .arg(url)
         .spawn()
-        .map_err(|e| format!("无法在外部浏览器中打开链接"))?;
+        .map_err(|e| format!("无法在外部浏览器中打开链接: {}", e))?;
     Ok(())
 }
 
@@ -80,15 +86,26 @@ fn open_link_os(url: String) -> Result<(), String> {
 #[tauri::command]
 async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String, String> {
     use std::path::Path;
+
+    // 获取应用程序安装目录（exe所在目录）
+    println!("获取应用程序安装目录...");
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("获取exe路径失败: {}", e))?;
     
-    // Ventoy可执行文件路径
-    let ventoy_exe = "E:\\ventoy\\Ventoy2Disk.exe";
-    
+    let app_dir = exe_path
+        .parent()
+        .ok_or("无法获取exe父目录")?
+        .to_path_buf();
+
+    println!("应用程序安装目录: {}", app_dir.display());
+
+    let ventoy_exe = format!("{}\\ventoy\\Ventoy2Disk.exe", app_dir.display());
+
     // 检查Ventoy可执行文件是否存在
-    if !Path::new(ventoy_exe).exists() {
+    if !Path::new(&ventoy_exe).exists() {
         return Err("Ventoy程序不存在，请确保已正确安装".to_string());
     }
-    
+
     // 构建命令参数
     let mut args = vec![
         "VTOYCLI".to_string(),
@@ -96,28 +113,25 @@ async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String
         format!("/PhyDrive:{}", physical_drive),
         "/NOUSBCheck".to_string(),
     ];
-    
+
     // 如果是UEFI模式，添加GPT参数
     if boot_mode.to_uppercase() == "UEFI" {
         args.push("/GPT".to_string());
     }
-    
+
     println!("执行Ventoy安装命令: {} {:?}", ventoy_exe, args);
-    
+
     // 执行命令
-    match Command::new(ventoy_exe)
-        .args(&args)
-        .output()
-    {
+    match Command::new(ventoy_exe).args(&args).output() {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            
+
             println!("Ventoy安装输出: {}", stdout);
             if !stderr.is_empty() {
                 println!("Ventoy安装错误: {}", stderr);
             }
-            
+
             if output.status.success() {
                 // 等待一下让系统识别新的Ventoy设备
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -126,9 +140,7 @@ async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String
                 Err(format!("Ventoy安装失败: {}", stderr))
             }
         }
-        Err(e) => {
-            Err(format!("执行Ventoy命令失败: {}", e))
-        }
+        Err(e) => Err(format!("执行Ventoy命令失败: {}", e)),
     }
 }
 
@@ -161,28 +173,27 @@ async fn check_boot_drive() -> Result<Option<BootDriveInfo>, String> {
 // 响应启动盘更改
 #[tauri::command]
 async fn get_drive_info(drive_letter: String) -> Result<GetDriveInfo, String> {
-   use std::path::Path;
-   
-   let config_path = format!("{}\\cloud-pe\\config.json", drive_letter);
-   let iso_path = format!("{}\\Cloud-PE.iso", drive_letter);
-   
-   // 检查两个文件是否同时存在
-   let is_boot_drive = Path::new(&config_path).exists() && Path::new(&iso_path).exists();
-   
-   Ok(GetDriveInfo {
-       letter: drive_letter,
-       is_boot_drive,
-   })
+    use std::path::Path;
+
+    let config_path = format!("{}\\cloud-pe\\config.json", drive_letter);
+    let iso_path = format!("{}\\Cloud-PE.iso", drive_letter);
+
+    // 检查两个文件是否同时存在
+    let is_boot_drive = Path::new(&config_path).exists() && Path::new(&iso_path).exists();
+
+    Ok(GetDriveInfo {
+        letter: drive_letter,
+        is_boot_drive,
+    })
 }
 
 // 数据类型定义
 #[derive(serde::Serialize)]
 struct GetDriveInfo {
-   letter: String,
-   #[serde(rename = "isBootDrive")]
-   is_boot_drive: bool,
+    letter: String,
+    #[serde(rename = "isBootDrive")]
+    is_boot_drive: bool,
 }
-   
 
 // 获取所有驱动器
 #[tauri::command]
@@ -208,6 +219,7 @@ async fn get_all_drives() -> Result<Vec<String>, String> {
 struct BootDriveInfo {
     letter: String,
     version: String,
+    #[serde(rename = "is_boot_drive")]
     is_boot_drive: bool,
 }
 

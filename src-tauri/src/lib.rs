@@ -59,12 +59,6 @@ fn get_all_drives() -> Vec<String> {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        //我草泥馬，傻逼manus
-
-    }
-
     drives
 }
 

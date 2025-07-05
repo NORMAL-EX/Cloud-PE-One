@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// 简单的内存缓存
+const apiCache: Map<string, any> = new Map();
+
 // 定义API返回的数据结构
 export interface UpdateInfo {
   code: number;
@@ -31,8 +34,17 @@ export interface UpdateInfo {
 
 // 获取更新信息的API
 export const getUpdateInfo = async (): Promise<UpdateInfo> => {
+  const url = 'https://api.ce-ramos.cn/GetInfo/';
+  
+  // 检查缓存
+  if (apiCache.has(url)) {
+    return apiCache.get(url);
+  }
+  
   try {
-    const response = await axios.get<UpdateInfo>('https://api.ce-ramos.cn/GetInfo/');
+    const response = await axios.get<UpdateInfo>(url);
+    // 缓存成功的响应
+    apiCache.set(url, response.data);
     return response.data;
   } catch (error) {
     console.error('获取更新信息失败:', error);
@@ -88,4 +100,3 @@ export const getUpdateLink = (updateInfo: UpdateInfo): string => {
 export const getAppExecutableName = (updateInfo: UpdateInfo): string => {
   return updateInfo.hub_new.app_name_exe;
 };
-

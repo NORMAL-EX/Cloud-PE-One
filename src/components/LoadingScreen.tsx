@@ -20,8 +20,8 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete }) => {
       // 检查网络连接
        setLoadingText('正在启动: 检查网络连接');
        // WARNING:开发环境暂时使用
-      //const isConnected = await checkNetworkConnection();
-      const isConnected = true;
+      const isConnected = await checkNetworkConnection();
+      //const isConnected = true;
       setNetworkConnected(isConnected);
       
       if (!isConnected) {

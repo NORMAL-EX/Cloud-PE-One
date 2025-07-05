@@ -320,6 +320,10 @@ const PluginsMarketPage: React.FC = () => {
   };
 
   const shouldShowCategories = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0;
+  
+  // 判断是否应该隐藏滚动条（出现错误或暂无插件时）
+  const shouldHideScrollbar = pluginsError || 
+    (isPageLoaded && !isLoadingPlugins && !pluginsError && getCurrentCategoryPlugins().length === 0);
 
   // 如果显示Web搜索界面，渲染Web搜索视图
   if (showWebSearch) {
@@ -369,7 +373,7 @@ const PluginsMarketPage: React.FC = () => {
         flex: 1, 
         padding: 16,
         backgroundColor: 'var(--semi-color-bg-0)',
-        overflow: 'auto'
+        overflow: shouldHideScrollbar ? 'hidden' : 'auto'  // 条件控制overflow
       }}>
         {isLoadingPlugins && (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -381,12 +385,21 @@ const PluginsMarketPage: React.FC = () => {
         )}
         
         {pluginsError && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <IconAlertCircle size="large" style={{ color: 'var(--semi-color-danger)' }} />
-            <div style={{ marginTop: 16 }}>
-              <Text type="danger">{pluginsError}</Text>
-            </div>
-          </div>
+      <div style={{ 
+        padding: 24, 
+        height: '84vh', 
+        display: 'flex', 
+        flexDirection: 'column' 
+      }}>
+        <Title heading={3} style={{ marginBottom: 24 }}>插件管理</Title>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Empty
+            image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
+            title="出现错误"
+            description={pluginsError}
+          />
+        </div>
+      </div>
         )}
         
         {isPageLoaded && !isLoadingPlugins && !pluginsError && (
@@ -404,7 +417,7 @@ const PluginsMarketPage: React.FC = () => {
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
                 <Empty
-                  image={<IconEmpty />}
+                  image={<IconEmpty style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
                   title="暂无插件"
                   description={currentCategory === '搜索' ? '没有找到相关插件' : '该分类下暂无插件'}
                 />

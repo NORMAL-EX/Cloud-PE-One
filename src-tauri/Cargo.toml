@@ -16,13 +16,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.2.0", features = [] }
+winres = "0.1"
 
 [dependencies]
 http-downloader = { version = "0.3.2" ,features = ["all-extensions"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.5.0", features = [] }
+tauri = { version = "2.5.0", features = ["devtools"] }
 tauri-plugin-log = "2.0.0-rc"
 sysinfo="0.30.13"
 reqwest = { version = "0.11", features = ["json", "stream"] }
@@ -50,3 +51,6 @@ winapi = { version = "0.3", features = [
 ] }
 zip = "0.6"
 encoding_rs = "0.8"
+
+[package.metadata.winres]
+manifest = "app.manifest"

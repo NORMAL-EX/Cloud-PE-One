@@ -2,6 +2,9 @@
 import axios from 'axios';
 import { invoke } from '@tauri-apps/api/core';
 
+// 简单的内存缓存
+const apiCache: Map<string, any> = new Map();
+
 // 插件信息接口
 export interface Plugin {
   name: string;
@@ -28,8 +31,17 @@ export interface PluginsResponse {
 
 // 获取插件列表
 export const getPlugins = async (): Promise<PluginCategory[]> => {
+  const url = 'https://api.ce-ramos.cn/GetPlugins/';
+  
+  // 检查缓存
+  if (apiCache.has(url)) {
+    return apiCache.get(url).data;
+  }
+  
   try {
-    const response = await axios.get<PluginsResponse>('https://api.ce-ramos.cn/GetPlugins/');
+    const response = await axios.get<PluginsResponse>(url);
+    // 缓存成功的响应
+    apiCache.set(url, response.data);
     return response.data.data;
   } catch (error) {
     console.error('获取插件列表失败:', error);
