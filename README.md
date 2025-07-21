@@ -1,10 +1,7 @@
 # Cloud-PE-One
 
-> [!CAUTION]
-> 由于Cloud-PE项目还处于开发期且Cloud-PE.CN尚未完成备案，所以该软件暂时使用的是CE-RAMOS API，数据信息也全部都为CE-RAMOS，我们将会在2025.9.1前修复这些问题并发布Cloud-PE One正式版
-
 # 介绍
-Cloud-PE 的全新客户端（软件整体已完成开发）
+Cloud-PE 的全新客户端
 
 ![Tauri](https://img.shields.io/badge/Tauri-191970?style=for-the-badge&logo=Tauri&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-%23323330.svg?style=for-the-badge&logo=TypeScript&logoColor=%23F7DF1E)
