@@ -1,51 +1,12 @@
-import axios from 'axios';
+import { unifiedApiService, UnifiedApiResponse } from './unifiedApi';
 
-// 简单的内存缓存
-const apiCache: Map<string, any> = new Map();
-
-// 定义API返回的数据结构
-export interface UpdateInfo {
-  code: number;
-  message: string;
-  data: {
-    cloud_pe: string;
-    cloudpe_updata: string[];
-    iso_version: string;
-    iso_important_updata: string[];
-    iso_second_version: string;
-    iso_s_important_updata: string[];
-    hub_version: string;
-  };
-  hub_new: {
-    hub_ver: string;
-    hub_tip: string;
-    hub_tip_type: string;
-    hub_updata_link: string;
-    app_name_exe: string;
-    log: {
-      [version: string]: {
-        can_skip: string;
-        log: string;
-        md5: string;
-      };
-    };
-  };
-}
+// 使用统一API的响应类型
+export type UpdateInfo = UnifiedApiResponse;
 
 // 获取更新信息的API
 export const getUpdateInfo = async (): Promise<UpdateInfo> => {
-  const url = 'https://api.ce-ramos.cn/GetInfo/';
-  
-  // 检查缓存
-  if (apiCache.has(url)) {
-    return apiCache.get(url);
-  }
-  
   try {
-    const response = await axios.get<UpdateInfo>(url);
-    // 缓存成功的响应
-    apiCache.set(url, response.data);
-    return response.data;
+    return await unifiedApiService.getData();
   } catch (error) {
     console.error('获取更新信息失败:', error);
     throw new Error('获取更新信息失败');

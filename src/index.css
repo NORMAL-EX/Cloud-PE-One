@@ -1,4 +1,17 @@
 @import '@douyinfe/semi-ui/dist/css/semi.min.css';
+@import './emoji.css';
+
+.semi-modal-content {
+  border: none !important;
+}
+
+/* 全局禁用文字选择 */
+* {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
 
 body[theme-mode=dark], body .semi-always-dark, :host([theme-mode=dark]), :host .semi-always-dark {
  --title-logo-text-color: #a1a1a2;
@@ -6,6 +19,14 @@ body[theme-mode=dark], body .semi-always-dark, :host([theme-mode=dark]), :host .
 
 body, body[theme-mode=dark] .semi-always-light, :host, :host .semi-always-light {
  --title-logo-text-color: #4f4f4f;
+ /* TIP
+ 修改 \node_modules\@douyinfe\semi-ui\lib\es\_base\base.css
+ body, body[theme-mode=dark] .semi-always-light, :host, :host .semi-always-light {
+   --semi-color-overlay-bg: rgba(240, 240, 240, .6);
+ }
+ 不然页面会像抹了屎一样
+ fuck you semi ui
+ */
 }
 
 body {

@@ -1,4 +1,4 @@
-import { getUpdateInfo } from './updateApi';
+import { unifiedApiService } from './unifiedApi';
 
 // 通知类型
 export type NotificationType = 'info' | 'warning' | 'danger' | 'success';
@@ -12,8 +12,8 @@ export interface NotificationInfo {
 // 获取通知信息
 export const getNotification = async (): Promise<NotificationInfo | null> => {
   try {
-    // 复用更新API获取通知信息
-    const updateInfo = await getUpdateInfo();
+    // 使用统一API服务获取数据
+    const updateInfo = await unifiedApiService.getData();
     
     // 获取通知内容和类型
     const content = updateInfo.hub_new.hub_tip;
@@ -38,4 +38,3 @@ export const getNotification = async (): Promise<NotificationInfo | null> => {
     return null;
   }
 };
-

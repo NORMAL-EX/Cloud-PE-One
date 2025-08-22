@@ -6,7 +6,7 @@ import {
   Notification 
 } from '@douyinfe/semi-ui';
 import { IconDownload, IconDisc, IconGlobeStroke} from '@douyinfe/semi-icons';
-import { getIsoDownloadLink } from '../api/isoApi';
+import { cacheService } from '../utils/cacheService';
 import { saveFileDialog } from '../utils/tauriApiWrapper';
 import { downloadFileToPath, getDownloadInfo, DownloadInfo } from '../api/downloadApi';
 import { useAppContext } from '../utils/AppContext';
@@ -16,82 +16,107 @@ const { Title, Text } = Typography;
 const CreateIsoPage: React.FC = () => {
   const { config, setIsGeneratingIso } = useAppContext();
   const [downloading, setDownloading] = useState<boolean>(false);
-  const [buttonLoading, setButtonLoading] = useState<boolean>(false); // 新增：按钮loading状态
+  const [buttonLoading, setButtonLoading] = useState<boolean>(false);
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo>({
     progress: "0%",
     speed: "0.00MB/s",
     downloading: false,
   });
   const [savePath, setSavePath] = useState<string>('');
-  const downloadStartedRef = useRef<boolean>(false); // 用于标记下载是否真正开始
-  const monitoringRef = useRef<boolean>(false); // 用于标记是否正在监听
+  
+  // 使用 ref 来存储最新的状态，避免闭包问题
+  const downloadingRef = useRef<boolean>(false);
+  const savePathRef = useRef<string>('');
+  const completeHandledRef = useRef<boolean>(false);
+  
+  // 新增：记录最高进度，防止进度倒退
+  const maxProgressRef = useRef<number>(0);
 
-  // 监听下载进度
+  // 更新 ref 当状态改变时
   useEffect(() => {
-    let intervalId: number | null = null;
+    downloadingRef.current = downloading;
+  }, [downloading]);
 
-    const startMonitoring = () => {
-      if (monitoringRef.current) return; // 防止重复监听
-      
-      console.log('开始监听下载进度...');
-      monitoringRef.current = true;
-      intervalId = window.setInterval(async () => {
-        try {
-          const info = await getDownloadInfo();
-          console.log('下载信息:', info);
+  useEffect(() => {
+    savePathRef.current = savePath;
+  }, [savePath]);
+
+  // 单一的轮询 effect，处理所有逻辑
+  useEffect(() => {
+    if (!downloading) {
+      completeHandledRef.current = false;
+      maxProgressRef.current = 0; // 重置最大进度
+      return;
+    }
+
+    let intervalId: number | null = null;
+    
+    const checkProgress = async () => {
+      try {
+        const info = await getDownloadInfo();
+        console.log('轮询获取到的信息:', info);
+        
+        // 解析当前进度
+        const progressMatch = info.progress.match(/(\d+(?:\.\d+)?)/);
+        const currentProgress = progressMatch ? parseFloat(progressMatch[1]) : 0;
+        
+        // 确保进度不会倒退
+        if (currentProgress >= maxProgressRef.current) {
+          maxProgressRef.current = currentProgress;
           setDownloadInfo(info);
+        } else {
+          // 如果新进度小于最大进度，保持最大进度但更新其他信息
+          setDownloadInfo({
+            ...info,
+            progress: `${maxProgressRef.current.toFixed(1)}%`
+          });
+        }
+        
+        // 检查是否完成
+        if (!completeHandledRef.current && 
+            info.progress === "100%" && 
+            !info.downloading && 
+            downloadingRef.current) {
           
-          // 如果下载完成，停止监听
-          if (!info.downloading && downloading && downloadStartedRef.current) {
-            console.log('下载完成，停止监听');
+          console.log('检测到下载完成，执行完成逻辑');
+          completeHandledRef.current = true; // 防止重复执行
+          
+          // 清除定时器
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+          
+          // 执行完成逻辑
+          setTimeout(() => {
             setDownloading(false);
-            setButtonLoading(false); // 重置按钮loading状态
-            downloadStartedRef.current = false;
-            monitoringRef.current = false;
-            
-            // 通知AppContext下载完成
+            setButtonLoading(false);
             setIsGeneratingIso(false);
-            
-            if (intervalId) {
-              clearInterval(intervalId);
-              intervalId = null;
-            }
             
             Notification.success({
               title: '镜像生成成功！',
-              content: `生成镜像已保存至：${savePath}`,
+              content: `生成镜像已保存至：${savePathRef.current}`,
               duration: 5
             });
-          }
-        } catch (error) {
-          console.error("获取下载信息失败:", error);
+          }, 100);
         }
-      }, 1000);
+      } catch (error) {
+        console.error("获取下载信息失败:", error);
+      }
     };
 
-    // 只有在真正开始下载时才启动监听
-    if (downloading && downloadStartedRef.current) {
-      startMonitoring();
-    } else if (!downloading && monitoringRef.current) {
-      // 如果下载状态变为false，停止监听
-      console.log('下载状态变为false，停止监听');
-      monitoringRef.current = false;
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    }
+    // 立即执行一次
+    checkProgress();
+    
+    // 设置定时器
+    intervalId = window.setInterval(checkProgress, 500);
 
     return () => {
       if (intervalId) {
         clearInterval(intervalId);
-        intervalId = null;
-      }
-      if (!downloading) {
-        monitoringRef.current = false;
       }
     };
-  }, [downloading, downloadStartedRef.current, savePath, setIsGeneratingIso]);
+  }, [downloading, setIsGeneratingIso]);
 
   // 处理窗口关闭和页面切换事件
   useEffect(() => {
@@ -103,65 +128,20 @@ const CreateIsoPage: React.FC = () => {
       }
     };
 
-    // 监听页面切换事件
-    const handleRouteChange = (e: Event) => {
-      if (downloading) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // 显示禁止切换页面的通知
-        Notification.warning({
-          title: '禁止切换页面',
-          content: '当前正在生成ISO镜像，请等待完成后再切换页面',
-          duration: 3
-        });
-        
-        return false;
-      }
-    };
-    
-    // 监听浏览器关闭事件
     window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    // 获取所有链接并添加事件监听
-    const links = document.querySelectorAll('a');
-    links.forEach(link => {
-      link.addEventListener('click', handleRouteChange);
-    });
-
-    // 监听浏览器前进后退按钮
-    const handlePopState = (e: PopStateEvent) => {
-      if (downloading) {
-        e.preventDefault();
-        window.history.pushState(null, '', window.location.href);
-        
-        Notification.warning({
-          title: '禁止切换页面',
-          content: '当前正在生成ISO镜像，请等待完成后再切换页面',
-          duration: 3
-        });
-      }
-    };
-    
-    window.addEventListener('popstate', handlePopState);
-
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('popstate', handlePopState);
-      links.forEach(link => {
-        link.removeEventListener('click', handleRouteChange);
-      });
     };
   }, [downloading]);
 
   // 获取进度百分比数值
   const getProgressPercent = (): number => {
-    const match = downloadInfo.progress.match(/(\d+)%/);
-    return match ? parseInt(match[1], 10) : 0;
+    const match = downloadInfo.progress.match(/(\d+(?:\.\d+)?)/);
+    return match ? parseFloat(match[1]) : 0;
   };
 
   const handleStartGenerate = async () => {
-    if (downloading || buttonLoading) { // 检查按钮loading状态
+    if (downloading || buttonLoading) {
       Notification.warning({
         title: '提示',
         content: '已有下载任务在进行中',
@@ -169,55 +149,21 @@ const CreateIsoPage: React.FC = () => {
       return;
     }
 
-    // 立即设置按钮为loading状态
     setButtonLoading(true);
 
     try {
-      console.log('开始生成ISO镜像...');
-      
       // 打开文件保存对话框
-      console.log('打开文件保存对话框...');
-      let filePath: string | null = null;
-      
-      try {
-        filePath = await saveFileDialog('Cloud-PE.iso');
-        console.log('文件保存路径:', filePath);
-      } catch (dialogError) {
-        console.error('文件保存对话框出错:', dialogError);
-        setButtonLoading(false); // 重置按钮loading状态
-        Notification.error({
-          title: '操作失败',
-          content: '无法打开文件保存对话框',
-          duration: 3
-        });
-        return;
-      }
-      
+      const filePath = await saveFileDialog('Cloud-PE.iso');
       if (!filePath) {
-        console.log('用户取消了文件保存');
-        setButtonLoading(false); // 重置按钮loading状态
+        setButtonLoading(false);
         return;
       }
 
-      console.log('开始下载流程...');
+      // 从缓存获取下载链接
+      const downloadLink = cacheService.getIsoDownloadLink();
       
-      // 获取下载链接
-      console.log('获取下载链接...');
-      let downloadLink: string;
-      try {
-        downloadLink = await getIsoDownloadLink();
-        console.log('下载链接获取成功:', downloadLink);
-      } catch (linkError) {
-        console.error('获取下载链接失败:', linkError);
-        // 重置所有状态，包括按钮loading状态
+      if (!downloadLink) {
         setButtonLoading(false);
-        setSavePath('');
-        setDownloadInfo({
-          progress: "0%",
-          speed: "0.00MB/s",
-          downloading: false,
-        });
-        
         Notification.error({
           title: '获取下载链接失败',
           content: '无法获取ISO镜像下载链接，请检查网络连接',
@@ -226,77 +172,56 @@ const CreateIsoPage: React.FC = () => {
         return;
       }
 
-      // 只有成功获取下载链接后才设置下载状态
-      setDownloading(true);
+      // 设置下载状态，初始就显示下载中
       setSavePath(filePath);
+      setDownloading(true);
+      setIsGeneratingIso(true);
+      completeHandledRef.current = false;
+      maxProgressRef.current = 0;
+      
+      // 立即设置初始下载状态，确保显示"下载中"
       setDownloadInfo({
         progress: "0%",
         speed: "0.00MB/s",
-        downloading: true,
+        downloading: true  // 确保初始状态是下载中
       });
 
-      // 通知AppContext开始下载
-      setIsGeneratingIso(true);
+      // 显示开始通知
+      Notification.info({
+        title: '开始生成ISO镜像',
+        content: '镜像生成任务已在后台运行',
+        duration: 3
+      });
 
       // 开始下载
-      console.log('开始下载文件...');
       try {
-        // 先显示下载开始通知
-        Notification.info({
-          title: '开始生成ISO镜像',
-          content: '镜像生成任务已在后台运行',
-          duration: 3
-        });
-        
-        // 标记下载真正开始，这会触发useEffect开始监听
-        downloadStartedRef.current = true;
-        
-        // 使用 downloadApi 中的 downloadFileToPath
         await downloadFileToPath(
           downloadLink,
           filePath,
-          config.downloadThreads // 使用设置的线程数目
+          config.downloadThreads
         );
+        console.log('downloadFileToPath 调用完成');
+      } catch (error) {
+        console.error('下载失败:', error);
         
-      } catch (downloadError) {
-        console.error('下载文件失败:', downloadError);
-        // 重置所有状态，包括按钮loading状态
+        // 重置状态
         setDownloading(false);
         setButtonLoading(false);
-        downloadStartedRef.current = false;
-        monitoringRef.current = false;
-        setSavePath('');
-        setDownloadInfo({
-          progress: "0%",
-          speed: "0.00MB/s",
-          downloading: false,
-        });
-        
-        // 通知AppContext下载失败
         setIsGeneratingIso(false);
+        setSavePath('');
+        maxProgressRef.current = 0;
         
         Notification.error({
           title: '下载失败',
-          content: downloadError instanceof Error ? downloadError.message : '下载ISO镜像时发生错误',
+          content: error instanceof Error ? error.message : '下载ISO镜像时发生错误',
           duration: 3
         });
       }
 
     } catch (error) {
-      console.error('生成ISO镜像失败 - 未预期的错误:', error);
-      // 重置所有状态，包括按钮loading状态
-      setDownloading(false);
+      console.error('生成ISO镜像失败:', error);
       setButtonLoading(false);
-      downloadStartedRef.current = false;
-      monitoringRef.current = false;
-      setSavePath('');
-      setDownloadInfo({
-        progress: "0%",
-        speed: "0.00MB/s",
-        downloading: false,
-      });
-      
-      // 通知AppContext下载失败
+      setDownloading(false);
       setIsGeneratingIso(false);
       
       Notification.error({
@@ -366,8 +291,8 @@ const CreateIsoPage: React.FC = () => {
       <Title heading={2} style={{ marginBottom: 32, textAlign: 'center' }}>生成ISO镜像</Title>
       <Button 
         type="primary"
-        icon={buttonLoading ? undefined : <IconDownload />} // 当loading时不显示图标
-        loading={buttonLoading} // 设置loading状态
+        icon={buttonLoading ? undefined : <IconDownload />}
+        loading={buttonLoading}
         onClick={handleStartGenerate}
       >
         开始生成

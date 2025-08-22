@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Button, Spin, Toast, Empty, Collapse } from '@douyinfe/semi-ui';
+import { Typography, Card, Button, Spin, Notification, Empty, Collapse } from '@douyinfe/semi-ui';
 import { IconAlertCircle ,IconInfoCircle } from '@douyinfe/semi-icons';
 import { useAppContext } from '../utils/AppContext';
 import { getPluginFiles, enablePlugin, disablePlugin, Plugin } from '../api/pluginsApi';
@@ -8,7 +8,7 @@ const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
 
 const PluginsManagePage: React.FC = () => {
-  const { bootDrive } = useAppContext();
+  const { bootDrive, pluginListRefreshTrigger } = useAppContext();
   const [enabledPlugins, setEnabledPlugins] = useState<Plugin[]>([]);
   const [disabledPlugins, setDisabledPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -16,31 +16,32 @@ const PluginsManagePage: React.FC = () => {
   const [processingPlugins, setProcessingPlugins] = useState<Record<string, boolean>>({});
 
   // 加载插件文件列表
+  const fetchPluginFiles = async () => {
+    // 如果没有启动盘，不加载插件
+    if (!bootDrive) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const { enabled, disabled } = await getPluginFiles(bootDrive.letter);
+      setEnabledPlugins(enabled);
+      setDisabledPlugins(disabled);
+    } catch (err) {
+      console.error('加载插件文件失败:', err);
+      setError('加载插件文件失败，请确保启动盘已正确插入。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 初始加载和监听刷新触发器
   useEffect(() => {
-    const fetchPluginFiles = async () => {
-      // 如果没有启动盘，不加载插件
-      if (!bootDrive) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const { enabled, disabled } = await getPluginFiles(bootDrive.letter);
-        setEnabledPlugins(enabled);
-        setDisabledPlugins(disabled);
-      } catch (err) {
-        console.error('加载插件文件失败:', err);
-        setError('加载插件文件失败，请确保启动盘已正确插入。');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchPluginFiles();
-  }, [bootDrive]);
+  }, [bootDrive, pluginListRefreshTrigger]); // 添加 pluginListRefreshTrigger 依赖
 
   // 更新插件文件名后缀的辅助函数
   const updatePluginFileName = (plugin: Plugin, newExtension: string): Plugin => {
@@ -69,11 +70,19 @@ const PluginsManagePage: React.FC = () => {
         setDisabledPlugins(prev => prev.filter(p => p.file !== plugin.file));
         setEnabledPlugins(prev => [...prev, updatedPlugin]);
         
-        Toast.success(`插件 ${plugin.name} 已启用`);
+        Notification.success({
+          title: '成功',
+          content: `插件 ${plugin.name} 已启用`,
+          duration: 3,
+        });
       }
     } catch (err) {
       console.error('启用插件失败:', err);
-      Toast.error(`启用插件 ${plugin.name} 失败`);
+      Notification.error({
+        title: '错误',
+        content: `启用插件 ${plugin.name} 失败`,
+        duration: 3,
+      });
     } finally {
       setProcessingPlugins(prev => ({ ...prev, [plugin.file]: false }));
     }
@@ -97,11 +106,19 @@ const PluginsManagePage: React.FC = () => {
         setEnabledPlugins(prev => prev.filter(p => p.file !== plugin.file));
         setDisabledPlugins(prev => [...prev, updatedPlugin]);
         
-        Toast.success(`插件 ${plugin.name} 已禁用`);
+        Notification.success({
+          title: '成功',
+          content: `插件 ${plugin.name} 已禁用`,
+          duration: 3,
+        });
       }
     } catch (err) {
       console.error('禁用插件失败:', err);
-      Toast.error(`禁用插件 ${plugin.name} 失败`);
+      Notification.error({
+        title: '错误',
+        content: `禁用插件 ${plugin.name} 失败`,
+        duration: 3,
+      });
     } finally {
       setProcessingPlugins(prev => ({ ...prev, [plugin.file]: false }));
     }

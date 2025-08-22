@@ -1,8 +1,4 @@
-// 启动盘升级相关API
-import axios from 'axios';
-
-// 简单的内存缓存
-const apiCache: Map<string, any> = new Map();
+import { unifiedApiService } from './unifiedApi';
 
 interface BootDriveUpdateInfo {
   cloudPeVersion: string;
@@ -11,30 +7,13 @@ interface BootDriveUpdateInfo {
 
 // 获取启动盘升级信息
 export const getBootDriveUpdateInfo = async (): Promise<BootDriveUpdateInfo> => {
-  const url = 'https://api.ce-ramos.cn/GetInfo/';
-  
-  // 检查缓存
-  if (apiCache.has(url)) {
-    const cachedData = apiCache.get(url);
-    return {
-      cloudPeVersion: cachedData.data.cloud_pe,
-      cloudPeUpdateList: cachedData.data.cloudpe_updata || []
-    };
-  }
-  
   try {
-    const response = await axios.get(url);
+    const response = await unifiedApiService.getData();
     
-    if (response.data.code === 200) {
-      // 缓存成功的响应
-      apiCache.set(url, response.data);
-      return {
-        cloudPeVersion: response.data.data.cloud_pe,
-        cloudPeUpdateList: response.data.data.cloudpe_updata || []
-      };
-    } else {
-      throw new Error(`API返回错误: ${response.data.message || '未知错误'}`);
-    }
+    return {
+      cloudPeVersion: response.data.cloud_pe,
+      cloudPeUpdateList: response.data.cloudpe_updata || []
+    };
   } catch (error) {
     console.error('获取启动盘升级信息失败:', error);
     throw error;

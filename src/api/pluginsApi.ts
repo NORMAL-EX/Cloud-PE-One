@@ -1,9 +1,5 @@
-// src/api/pluginsApi.ts
 import axios from 'axios';
 import { invoke } from '@tauri-apps/api/core';
-
-// 简单的内存缓存
-const apiCache: Map<string, any> = new Map();
 
 // 插件信息接口
 export interface Plugin {
@@ -29,19 +25,12 @@ export interface PluginsResponse {
   data: PluginCategory[];
 }
 
-// 获取插件列表
+// 获取插件列表（移除缓存）
 export const getPlugins = async (): Promise<PluginCategory[]> => {
-  const url = 'https://api.ce-ramos.cn/GetPlugins/';
-  
-  // 检查缓存
-  if (apiCache.has(url)) {
-    return apiCache.get(url).data;
-  }
+  const url = 'https://api.cloud-pe.cn/GetPlugins/';
   
   try {
     const response = await axios.get<PluginsResponse>(url);
-    // 缓存成功的响应
-    apiCache.set(url, response.data);
     return response.data.data;
   } catch (error) {
     console.error('获取插件列表失败:', error);
@@ -53,12 +42,12 @@ export const getPlugins = async (): Promise<PluginCategory[]> => {
 export const downloadPlugin = async (
   url: string,
   fileName: string,
-  bootDriveLetter: string | null, // 新增启动盘盘符参数
+  bootDriveLetter: string | null,
   threads: number = 8
 ): Promise<string> => {
   try {
     // 构建下载路径 - 使用启动盘盘符 + \ce-apps
-    const downloadPath = `${bootDriveLetter}\\ce-apps`; // 后备路径
+    const downloadPath = `${bootDriveLetter}\\ce-apps`;
     
     console.log('下载路径:', downloadPath);
     console.log('开始下载插件:', { url, fileName, downloadPath, threads });

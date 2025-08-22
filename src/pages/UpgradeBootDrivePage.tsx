@@ -12,7 +12,7 @@ import {
 } from '@douyinfe/semi-icons';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppContext } from '../utils/AppContext';
-import { getIsoDownloadLink } from '../api/isoApi';
+import { cacheService } from '../utils/cacheService';
 import { downloadFileToPath, getDownloadInfo, DownloadInfo } from '../api/downloadApi';
 
 const { Title, Text } = Typography;
@@ -124,13 +124,11 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
       console.log('开始升级流程...');
       console.log('使用驱动器:', bootDrive.letter);
       
-      console.log('获取下载链接...');
-      let downloadLink: string;
-      try {
-        downloadLink = await getIsoDownloadLink();
-        console.log('下载链接获取成功:', downloadLink);
-      } catch (linkError) {
-        console.error('获取下载链接失败:', linkError);
+      // 从缓存获取下载链接
+      const downloadLink = cacheService.getIsoDownloadLink();
+      
+      if (!downloadLink) {
+        console.error('缓存中没有下载链接');
         setIsDeploying(false);
         setIsUpgradingBootDrive(false);
         setDownloadInfo({

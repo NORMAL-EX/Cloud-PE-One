@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Nav, Card, Button, Spin, Toast, Empty, Notification, Tooltip } from '@douyinfe/semi-ui';
+import { Typography, Nav, Card, Button, Spin, Notification, Empty, Tooltip } from '@douyinfe/semi-ui';
 import { IconDownload, IconAlertCircle, IconGlobe, IconArrowLeft } from '@douyinfe/semi-icons';
 import { IconEmpty } from '@douyinfe/semi-icons-lab';
 import { downloadPlugin, Plugin } from '../api/pluginsApi';
 import { useAppContext } from '../utils/AppContext';
+import { cacheService } from '../utils/cacheService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -19,6 +20,8 @@ const PluginsMarketPage: React.FC = () => {
     // 新增：使用全局下载状态
     downloadingPlugins,
     setPluginDownloading,
+    // 新增：触发插件列表刷新
+    triggerPluginListRefresh,
   } = useAppContext();
   
   const [currentCategory, setCurrentCategory] = useState<string>('');
@@ -30,6 +33,9 @@ const PluginsMarketPage: React.FC = () => {
   // 新增状态：控制Web搜索界面
   const [webSearchPlugin, setWebSearchPlugin] = useState<Plugin | null>(null);
   const [showWebSearch, setShowWebSearch] = useState<boolean>(false);
+
+  // 获取是否有插件
+  const hasPlugins = cacheService.hasPlugins();
 
   // 生成插件的唯一标识符
   const getPluginUniqueId = (plugin: Plugin): string => {
@@ -52,7 +58,7 @@ const PluginsMarketPage: React.FC = () => {
   // 当插件分类加载完成后，设置默认分类
   useEffect(() => {
     if (pluginCategories.length > 0 && !currentCategory && !isInitialized) {
-      if (searchResults) {
+      if (searchResults && searchKeyword.trim()) {  // 添加搜索关键词检查
         setCurrentCategory('搜索');
         setHasProcessedSearch(true);
       } else {
@@ -60,21 +66,23 @@ const PluginsMarketPage: React.FC = () => {
       }
       setIsInitialized(true);
     }
-  }, [pluginCategories, searchResults, currentCategory, isInitialized]);
+  }, [pluginCategories, searchResults, currentCategory, isInitialized, searchKeyword]);
 
   // 当搜索结果变化时，处理分类切换
   useEffect(() => {
-    if (searchResults && !hasProcessedSearch) {
+    // 只有在有搜索关键词时才切换到搜索分类
+    if (searchResults && searchKeyword.trim() && !hasProcessedSearch) {
       setCurrentCategory('搜索');
       setHasProcessedSearch(true);
       setUserSelectedCategory(false);
     } 
-    else if (!searchResults && currentCategory === '搜索' && pluginCategories.length > 0) {
+    else if (!searchKeyword.trim() && currentCategory === '搜索' && pluginCategories.length > 0) {
+      // 搜索关键词为空时，切换回默认分类
       setCurrentCategory(pluginCategories[0].class);
       setHasProcessedSearch(false);
       setUserSelectedCategory(false);
     }
-  }, [searchResults, currentCategory, pluginCategories, hasProcessedSearch]);
+  }, [searchResults, searchKeyword, currentCategory, pluginCategories, hasProcessedSearch]);
 
   // 当搜索关键词变化时，重置处理状态
   useEffect(() => {
@@ -110,9 +118,9 @@ const PluginsMarketPage: React.FC = () => {
   const handleDownloadPlugin = async (plugin: Plugin) => {
     if (!bootDrive) {
       Notification.error({
+        title: '尚未准备就绪！',
         content: '目前您还尚未安装或制作Cloud-PE启动盘，因此该功能暂不可用！',
-        duration: 3,
-        title: '尚未准备就绪！'
+        duration: 3
       });
       return;
     }
@@ -129,10 +137,21 @@ const PluginsMarketPage: React.FC = () => {
         config.downloadThreads
       );
       
-      Toast.success(`插件 ${plugin.name} 下载完成`);
+      Notification.success({
+        title: '下载成功',
+        content: `插件 ${plugin.name} 已下载完成`,
+        duration: 3,
+      });
+      
+      // 触发插件列表刷新
+      triggerPluginListRefresh();
     } catch (err) {
       console.error('下载插件失败:', err);
-      Toast.error(`插件 ${plugin.name} 下载失败`);
+      Notification.error({
+        title: '错误',
+        content: `插件 ${plugin.name} 下载失败`,
+        duration: 3,
+      });
     } finally {
       setPluginDownloading(pluginId, false);
     }
@@ -154,19 +173,28 @@ const PluginsMarketPage: React.FC = () => {
     document.body.style.overflow = '';
   };
 
-  // 获取当前分类的插件列表（已去重）
-  const getCurrentCategoryPlugins = (): Plugin[] => {
-    let plugins: Plugin[] = [];
-    
-    if (currentCategory === '搜索' && searchResults) {
+// 获取当前分类的插件列表（已去重）
+const getCurrentCategoryPlugins = (): Plugin[] => {
+  let plugins: Plugin[] = [];
+  
+  // 如果是搜索分类
+  if (currentCategory === '搜索') {
+    // 只有在有搜索关键词时才返回搜索结果
+    if (searchKeyword.trim() && searchResults) {
       plugins = searchResults.list;
-    } else {
-      const category = pluginCategories.find(cat => cat.class === currentCategory);
-      plugins = category ? category.list : [];
+    } else if (pluginCategories.length > 0) {
+      // 如果搜索关键词为空，返回第一个分类的插件作为过渡
+      const firstCategory = pluginCategories[0];
+      plugins = firstCategory ? firstCategory.list : [];
     }
-    
-    return deduplicatePlugins(plugins);
-  };
+  } else {
+    // 非搜索分类的正常逻辑
+    const category = pluginCategories.find(cat => cat.class === currentCategory);
+    plugins = category ? category.list : [];
+  }
+  
+  return deduplicatePlugins(plugins);
+};
 
   // 获取导航项
   const getNavItems = () => {
@@ -175,7 +203,8 @@ const PluginsMarketPage: React.FC = () => {
       text: category.class
     }));
     
-    if (searchResults) {
+    // 只有在有搜索关键词和搜索结果时才添加搜索分类
+    if (searchResults && searchKeyword.trim()) {
       items.unshift({
         itemKey: '搜索',
         text: '搜索'
@@ -226,12 +255,12 @@ const PluginsMarketPage: React.FC = () => {
             <div style={{ display: 'flex', gap: 8 }}>
               {/* Web搜索按钮 */}
               {config.enablePluginWebSearch && (
-                <Tooltip content="在 Bing 上搜索关于该软件的有关信息">
+                <Tooltip content="在 Bing 上搜索该软件">
                   <Button 
                     icon={<IconGlobe />}
                     onClick={() => handleWebSearch(plugin)}
                   >
-                    在 Web 上搜索
+                    搜索
                   </Button>
                 </Tooltip>
               )}
@@ -268,16 +297,16 @@ const PluginsMarketPage: React.FC = () => {
     const bingUrl = `https://www.bing.com/search?q=${searchQuery}`;
     
     return (
-      <div style={{ 
+      <div className="plugins-info" style={{ 
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         width: '100%',
         backgroundColor: 'var(--semi-color-bg-0)',
-        overflow: 'hidden'  // 防止内部产生滚动条
+        overflow: 'hidden'
       }}>
         {/* 头部信息栏 */}
-        <div style={{
+        <div className="plugins-info" style={{
           padding: 16,
           borderBottom: '1px solid var(--semi-color-border)',
           display: 'flex',
@@ -319,10 +348,10 @@ const PluginsMarketPage: React.FC = () => {
     );
   };
 
-  const shouldShowCategories = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0;
+  const shouldShowCategories = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0 && hasPlugins;
   
-  // 判断是否应该隐藏滚动条（出现错误或暂无插件时）
-  const shouldHideScrollbar = pluginsError || 
+  // 判断是否应该隐藏滚动条
+  const shouldHideScrollbar = pluginsError || !hasPlugins ||
     (isPageLoaded && !isLoadingPlugins && !pluginsError && getCurrentCategoryPlugins().length === 0);
 
   // 如果显示Web搜索界面，渲染Web搜索视图
@@ -331,10 +360,31 @@ const PluginsMarketPage: React.FC = () => {
       <div style={{ 
         display: 'flex', 
         height: 'calc(100vh - 48px)',
-        overflow: 'hidden'  // 确保容器本身也不显示滚动条
+        overflow: 'hidden'
       }}>
         {renderWebSearchView()}
       </div>
+    );
+  }
+
+  // 如果没有插件，显示加载失败状态
+  if (!isLoadingPlugins && !pluginsError && !hasPlugins) {
+    return (
+          <div style={{ 
+            padding: 24, 
+            height: '84vh', 
+            display: 'flex', 
+            flexDirection: 'column' 
+          }}>
+            <Title heading={3} style={{ marginBottom: 24 }}>插件市场</Title>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <Empty
+                image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
+                title="出现错误"
+                description="无法获取到插件列表，插件市场加载失败"
+              />
+            </div>
+          </div>
     );
   }
 
@@ -348,7 +398,7 @@ const PluginsMarketPage: React.FC = () => {
           position: 'relative',
           overflow: 'hidden'
         }}>
-          <div style={{ 
+          <div className="plugins-market-nav" style={{ 
             backgroundColor: 'var(--semi-color-nav-bg)', 
             height: '100%', 
             borderRight: '1px solid var(--semi-color-border)',
@@ -369,40 +419,37 @@ const PluginsMarketPage: React.FC = () => {
       )}
       
       {/* 右侧插件列表 */}
-      <div style={{ 
+      <div className="plugins-market-list" style={{
         flex: 1, 
         padding: 16,
         backgroundColor: 'var(--semi-color-bg-0)',
-        overflow: shouldHideScrollbar ? 'hidden' : 'auto'  // 条件控制overflow
+        overflow: shouldHideScrollbar ? 'hidden' : 'auto'
       }}>
         {isLoadingPlugins && (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" />
-            <div style={{ marginTop: 16 }}>
-              <Text type="secondary">正在加载插件列表...</Text>
-            </div>
           </div>
         )}
         
         {pluginsError && (
-      <div style={{ 
-        padding: 24, 
-        height: '84vh', 
-        display: 'flex', 
-        flexDirection: 'column' 
-      }}>
-        <Title heading={3} style={{ marginBottom: 24 }}>插件管理</Title>
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-          <Empty
-            image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
-            title="出现错误"
-            description={pluginsError}
-          />
-        </div>
-      </div>
+          <div style={{ 
+            padding: 24, 
+            height: '84vh', 
+            display: 'flex', 
+            flexDirection: 'column' 
+          }}>
+            <Title heading={3} style={{ marginBottom: 24 }}>插件市场</Title>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <Empty
+                image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
+                title="出现错误"
+                description={pluginsError}
+              />
+            </div>
+          </div>
         )}
         
-        {isPageLoaded && !isLoadingPlugins && !pluginsError && (
+        {isPageLoaded && !isLoadingPlugins && !pluginsError && hasPlugins && (
           <>
             {getCurrentCategoryPlugins().length > 0 ? (
               <div style={{ 

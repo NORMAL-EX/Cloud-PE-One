@@ -46,7 +46,7 @@ const DocsPage: React.FC = () => {
       )}
       <iframe
         ref={iframeRef}
-        src="https://docs.ce-ramos.cn"
+        src="https://docs.cloud-pe.cn"
         style={{
           width: '100%',
           height: '100%',

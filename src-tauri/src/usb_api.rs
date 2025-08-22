@@ -1,3 +1,8 @@
+// 允许Windows API风格的命名
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)]
+
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -5,23 +10,31 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use sysinfo::Disks;
 use tauri::command;
-use sysinfo::{System, Disks};
+
+use crate::download::download_plugin_file;
+use std::path::PathBuf;
 
 // Windows API
-use winapi::um::fileapi::{CreateFileW, OPEN_EXISTING, FindFirstFileW, FindNextFileW, FindClose, FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, GetVolumePathNamesForVolumeNameW};
-use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
-use winapi::um::winioctl::*;
-use winapi::um::ioapiset::DeviceIoControl;
-use winapi::shared::minwindef::{DWORD, HKEY, LPBYTE, BYTE, TRUE, FALSE};
-use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, HANDLE, FILE_ATTRIBUTE_DIRECTORY};
-use winapi::um::winreg::{RegOpenKeyExW, RegCloseKey, RegQueryValueExW, HKEY_LOCAL_MACHINE};
-use winapi::shared::winerror::ERROR_SUCCESS;
-use winapi::um::minwinbase::WIN32_FIND_DATAW;
 use std::ffi::{OsStr, OsString};
+use std::mem;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::ptr;
-use std::mem;
+use winapi::shared::minwindef::{BYTE, DWORD, HKEY, LPBYTE};
+use winapi::shared::winerror::ERROR_SUCCESS;
+use winapi::um::fileapi::{
+    CreateFileW, FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, OPEN_EXISTING,
+};
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use winapi::um::ioapiset::DeviceIoControl;
+use winapi::um::winnt::{
+    FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, HANDLE,
+};
+use winapi::um::winreg::{RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE};
+
+// 存储总线类型枚举
+const BusTypeUsb: DWORD = 0x07;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UsbDevice {
@@ -40,7 +53,10 @@ pub struct ApiResponse {
 
 // 将字符串转换为宽字符串
 fn to_wide_string(s: &str) -> Vec<u16> {
-    OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 // 格式化大小
@@ -65,17 +81,17 @@ fn format_size(bytes: u64) -> String {
 fn get_physical_drive_number(disk_path: &str) -> Option<u32> {
     // 尝试从路径中提取设备信息
     let mount_point = disk_path.trim_end_matches('\\');
-    
+
     // 处理特殊情况，如 "1:" 这样的卷
     if mount_point.len() == 2 && mount_point.ends_with(':') {
         println!("特殊分区格式: {}", mount_point);
     }
-    
+
     unsafe {
         // 尝试打开卷设备
         let volume_path = format!("\\\\.\\{}", mount_point);
         let wide_path = to_wide_string(&volume_path);
-        
+
         let h_volume = CreateFileW(
             wide_path.as_ptr(),
             0,
@@ -85,15 +101,15 @@ fn get_physical_drive_number(disk_path: &str) -> Option<u32> {
             0,
             ptr::null_mut(),
         );
-        
+
         if h_volume == INVALID_HANDLE_VALUE {
             println!("无法打开卷 {}", volume_path);
             return None;
         }
-        
+
         let mut storage_device_number: STORAGE_DEVICE_NUMBER = mem::zeroed();
         let mut bytes_returned: DWORD = 0;
-        
+
         let result = DeviceIoControl(
             h_volume,
             IOCTL_STORAGE_GET_DEVICE_NUMBER,
@@ -104,11 +120,14 @@ fn get_physical_drive_number(disk_path: &str) -> Option<u32> {
             &mut bytes_returned,
             ptr::null_mut(),
         );
-        
+
         CloseHandle(h_volume);
-        
+
         if result != 0 && storage_device_number.DeviceType == FILE_DEVICE_DISK {
-            println!("卷 {} 对应物理驱动器 {}", mount_point, storage_device_number.DeviceNumber);
+            println!(
+                "卷 {} 对应物理驱动器 {}",
+                mount_point, storage_device_number.DeviceNumber
+            );
             Some(storage_device_number.DeviceNumber)
         } else {
             println!("无法获取卷 {} 的物理驱动器编号", mount_point);
@@ -122,7 +141,7 @@ fn get_physical_drive_number_from_path(drive_number: u32) -> Option<u32> {
     unsafe {
         let physical_path = format!("\\\\.\\PHYSICALDRIVE{}", drive_number);
         let wide_path = to_wide_string(&physical_path);
-        
+
         let h_drive = CreateFileW(
             wide_path.as_ptr(),
             0,
@@ -132,11 +151,11 @@ fn get_physical_drive_number_from_path(drive_number: u32) -> Option<u32> {
             0,
             ptr::null_mut(),
         );
-        
+
         if h_drive == INVALID_HANDLE_VALUE {
             return None;
         }
-        
+
         CloseHandle(h_drive);
         Some(drive_number)
     }
@@ -149,11 +168,12 @@ const fn CTL_CODE(device_type: DWORD, function: DWORD, method: DWORD, access: DW
 }
 const METHOD_BUFFERED: DWORD = 0;
 const FILE_ANY_ACCESS: DWORD = 0;
-const IOCTL_STORAGE_GET_DEVICE_NUMBER: DWORD = CTL_CODE(0x0000002d, 0x0420, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_STORAGE_QUERY_PROPERTY: DWORD = CTL_CODE(0x0000002d, 0x0500, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_DISK_GET_DRIVE_GEOMETRY_EX: DWORD = CTL_CODE(FILE_DEVICE_DISK, 0x0028, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_DISK_GET_DRIVE_LAYOUT_EX: DWORD = CTL_CODE(FILE_DEVICE_DISK, 0x0030, METHOD_BUFFERED, FILE_ANY_ACCESS);
-
+const IOCTL_STORAGE_GET_DEVICE_NUMBER: DWORD =
+    CTL_CODE(0x0000002d, 0x0420, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_STORAGE_QUERY_PROPERTY: DWORD =
+    CTL_CODE(0x0000002d, 0x0500, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_DISK_GET_DRIVE_GEOMETRY_EX: DWORD =
+    CTL_CODE(FILE_DEVICE_DISK, 0x0028, METHOD_BUFFERED, FILE_ANY_ACCESS);
 #[repr(C)]
 struct STORAGE_DEVICE_NUMBER {
     DeviceType: DWORD,
@@ -186,48 +206,6 @@ struct STORAGE_DEVICE_DESCRIPTOR {
     RawDeviceProperties: [BYTE; 1],
 }
 
-// 分区信息结构体
-#[repr(C)]
-struct PARTITION_INFORMATION_EX {
-    PartitionStyle: DWORD,
-    StartingOffset: i64,
-    PartitionLength: i64,
-    PartitionNumber: DWORD,
-    RewritePartition: BYTE,
-    union1: [u8; 112], // 简化的联合体
-}
-
-#[repr(C)]
-struct DRIVE_LAYOUT_INFORMATION_EX {
-    PartitionStyle: DWORD,
-    PartitionCount: DWORD,
-    union1: [u8; 40], // 简化的联合体
-    PartitionEntry: [PARTITION_INFORMATION_EX; 1],
-}
-
-// 存储总线类型枚举
-const BusTypeUnknown: DWORD = 0x00;
-const BusTypeScsi: DWORD = 0x01;
-const BusTypeAtapi: DWORD = 0x02;
-const BusTypeAta: DWORD = 0x03;
-const BusType1394: DWORD = 0x04;
-const BusTypeSsa: DWORD = 0x05;
-const BusTypeFibre: DWORD = 0x06;
-const BusTypeUsb: DWORD = 0x07;
-const BusTypeRAID: DWORD = 0x08;
-const BusTypeiScsi: DWORD = 0x09;
-const BusTypeSas: DWORD = 0x0A;
-const BusTypeSata: DWORD = 0x0B;
-const BusTypeSd: DWORD = 0x0C;
-const BusTypeMmc: DWORD = 0x0D;
-const BusTypeVirtual: DWORD = 0x0E;
-const BusTypeFileBackedVirtual: DWORD = 0x0F;
-const BusTypeSpaces: DWORD = 0x10;
-const BusTypeNvme: DWORD = 0x11;
-const BusTypeSCM: DWORD = 0x12;
-const BusTypeUfs: DWORD = 0x13;
-const BusTypeMax: DWORD = 0x14;
-
 const StorageDeviceProperty: DWORD = 0;
 const PropertyStandardQuery: DWORD = 0;
 
@@ -247,43 +225,6 @@ struct DISK_GEOMETRY_EX {
     Data: [BYTE; 1],
 }
 
-// 检查路径中是否有文件（使用WinAPI）
-fn path_has_files(path: &str) -> bool {
-    unsafe {
-        let search_path = format!("{}\\*", path);
-        let wide_path = to_wide_string(&search_path);
-        let mut find_data: WIN32_FIND_DATAW = mem::zeroed();
-        
-        let h_find = FindFirstFileW(wide_path.as_ptr(), &mut find_data);
-        if h_find == INVALID_HANDLE_VALUE {
-            return false;
-        }
-        
-        loop {
-            let file_name = OsString::from_wide(&find_data.cFileName[..])
-                .to_string_lossy()
-                .to_string();
-            let file_name = file_name.trim_end_matches('\0');
-            
-            // 跳过 . 和 ..
-            if file_name != "." && file_name != ".." {
-                // 检查是否是文件（不是目录）
-                if find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
-                    FindClose(h_find);
-                    return true;
-                }
-            }
-            
-            if FindNextFileW(h_find, &mut find_data) == 0 {
-                break;
-            }
-        }
-        
-        FindClose(h_find);
-        false
-    }
-}
-
 // 检查分区是否包含Ventoy文件结构（改进版，支持无盘符分区）
 fn check_partition_for_ventoy_by_volume_path(volume_path: &str) -> bool {
     unsafe {
@@ -298,12 +239,12 @@ fn check_partition_for_ventoy_by_volume_path(volume_path: &str) -> bool {
             FILE_FLAG_BACKUP_SEMANTICS,
             ptr::null_mut(),
         );
-        
+
         if h_volume == INVALID_HANDLE_VALUE {
             println!("无法打开卷: {}", volume_path);
             return false;
         }
-        
+
         // 检查目录结构
         let result = check_ventoy_directories_with_handle(h_volume, volume_path);
         CloseHandle(h_volume);
@@ -317,11 +258,11 @@ fn check_ventoy_directories_with_handle(h_volume: HANDLE, volume_path: &str) -> 
         // 构建要检查的路径
         let paths_to_check = ["EFI", "grub", "tool", "ventoy"];
         let mut found_count = 0;
-        
+
         for dir_name in &paths_to_check {
             let dir_path = format!("{}\\{}", volume_path.trim_end_matches('\\'), dir_name);
             let wide_path = to_wide_string(&dir_path);
-            
+
             // 获取文件属性
             let attrs = GetFileAttributesW(wide_path.as_ptr());
             if attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 {
@@ -329,7 +270,7 @@ fn check_ventoy_directories_with_handle(h_volume: HANDLE, volume_path: &str) -> 
                 found_count += 1;
             }
         }
-        
+
         println!("  在 {} 找到 {}/4 个Ventoy目录", volume_path, found_count);
         found_count == 4
     }
@@ -340,23 +281,23 @@ fn check_all_volumes_for_ventoy(disk_number: u32) -> bool {
     unsafe {
         let mut volume_name: [u16; 50] = [0; 50];
         let h_find = FindFirstVolumeW(volume_name.as_mut_ptr(), 50);
-        
+
         if h_find == INVALID_HANDLE_VALUE {
             return false;
         }
-        
+
         loop {
             let volume = OsString::from_wide(&volume_name[..])
                 .to_string_lossy()
                 .trim_matches('\0')
                 .to_string();
-            
+
             println!("检查卷: {}", volume);
-            
+
             // 检查这个卷是否属于指定的磁盘
             let volume_trimmed = volume.trim_end_matches('\\');
             let wide_volume = to_wide_string(volume_trimmed);
-            
+
             let h_volume = CreateFileW(
                 wide_volume.as_ptr(),
                 0,
@@ -366,11 +307,11 @@ fn check_all_volumes_for_ventoy(disk_number: u32) -> bool {
                 0,
                 ptr::null_mut(),
             );
-            
+
             if h_volume != INVALID_HANDLE_VALUE {
                 let mut storage_device_number: STORAGE_DEVICE_NUMBER = mem::zeroed();
                 let mut bytes_returned: DWORD = 0;
-                
+
                 let result = DeviceIoControl(
                     h_volume,
                     IOCTL_STORAGE_GET_DEVICE_NUMBER,
@@ -381,13 +322,15 @@ fn check_all_volumes_for_ventoy(disk_number: u32) -> bool {
                     &mut bytes_returned,
                     ptr::null_mut(),
                 );
-                
+
                 CloseHandle(h_volume);
-                
-                if result != 0 && storage_device_number.DeviceType == FILE_DEVICE_DISK 
-                   && storage_device_number.DeviceNumber == disk_number {
+
+                if result != 0
+                    && storage_device_number.DeviceType == FILE_DEVICE_DISK
+                    && storage_device_number.DeviceNumber == disk_number
+                {
                     println!("  卷 {} 属于磁盘 {}", volume, disk_number);
-                    
+
                     // 检查这个卷是否包含Ventoy文件结构
                     if check_partition_for_ventoy_by_volume_path(volume_trimmed) {
                         FindVolumeClose(h_find);
@@ -395,13 +338,13 @@ fn check_all_volumes_for_ventoy(disk_number: u32) -> bool {
                     }
                 }
             }
-            
+
             // 继续下一个卷
             if FindNextVolumeW(h_find, volume_name.as_mut_ptr(), 50) == 0 {
                 break;
             }
         }
-        
+
         FindVolumeClose(h_find);
         false
     }
@@ -410,7 +353,7 @@ fn check_all_volumes_for_ventoy(disk_number: u32) -> bool {
 // 改进的is_ventoy_device函数 - 移除分区标签检测
 fn is_ventoy_device(disk_number: u32) -> bool {
     println!("检查磁盘 {} 是否为Ventoy设备...", disk_number);
-    
+
     // 方法1: 检查有盘符的分区
     let disks = Disks::new_with_refreshed_list();
     for disk in disks.iter() {
@@ -424,7 +367,7 @@ fn is_ventoy_device(disk_number: u32) -> bool {
                     } else {
                         format!("{}\\", mount_point)
                     };
-                    
+
                     if check_partition_for_ventoy(&mount_with_slash) {
                         println!("磁盘 {} 通过文件结构识别为Ventoy设备", disk_number);
                         return true;
@@ -433,13 +376,13 @@ fn is_ventoy_device(disk_number: u32) -> bool {
             }
         }
     }
-    
+
     // 方法2: 枚举所有卷（包括无盘符的）
     if check_all_volumes_for_ventoy(disk_number) {
         println!("磁盘 {} 通过卷枚举识别为Ventoy设备", disk_number);
         return true;
     }
-    
+
     println!("磁盘 {} 不是Ventoy设备", disk_number);
     false
 }
@@ -453,94 +396,6 @@ extern "system" {
     fn GetFileAttributesW(lpFileName: *const u16) -> DWORD;
 }
 
-// 获取磁盘的所有分区（包括没有分配盘符的）
-fn get_all_disk_partitions(disk_number: u32) -> Vec<String> {
-    let mut partitions = Vec::new();
-    
-    unsafe {
-        // 打开物理磁盘
-        let disk_path = format!("\\\\.\\PHYSICALDRIVE{}", disk_number);
-        let wide_path = to_wide_string(&disk_path);
-        
-        let h_disk = CreateFileW(
-            wide_path.as_ptr(),
-            GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            ptr::null_mut(),
-            OPEN_EXISTING,
-            0,
-            ptr::null_mut(),
-        );
-        
-        if h_disk == INVALID_HANDLE_VALUE {
-            println!("无法打开磁盘 {}", disk_number);
-            return partitions;
-        }
-        
-        // 获取分区布局信息
-        let mut layout_buffer: [u8; 4096] = [0; 4096];
-        let mut bytes_returned: DWORD = 0;
-        
-        let result = DeviceIoControl(
-            h_disk,
-            IOCTL_DISK_GET_DRIVE_LAYOUT_EX,
-            ptr::null_mut(),
-            0,
-            layout_buffer.as_mut_ptr() as *mut _,
-            layout_buffer.len() as DWORD,
-            &mut bytes_returned,
-            ptr::null_mut(),
-        );
-        
-        CloseHandle(h_disk);
-        
-        if result != 0 && bytes_returned >= mem::size_of::<DRIVE_LAYOUT_INFORMATION_EX>() as DWORD {
-            let layout = &*(layout_buffer.as_ptr() as *const DRIVE_LAYOUT_INFORMATION_EX);
-            println!("磁盘 {} 有 {} 个分区", disk_number, layout.PartitionCount);
-            
-            // 遍历所有分区
-            for i in 0..layout.PartitionCount {
-                if i >= 128 { break; } // 防止越界
-                
-                let partition_ptr = layout_buffer.as_ptr().offset(
-                    mem::size_of::<DRIVE_LAYOUT_INFORMATION_EX>() as isize - 
-                    mem::size_of::<PARTITION_INFORMATION_EX>() as isize + 
-                    (i as isize * mem::size_of::<PARTITION_INFORMATION_EX>() as isize)
-                ) as *const PARTITION_INFORMATION_EX;
-                
-                let partition = &*partition_ptr;
-                
-                // 跳过大小为0的分区
-                if partition.PartitionLength == 0 {
-                    continue;
-                }
-                
-                // 构建分区路径（使用Harddisk和Partition格式）
-                let partition_path = format!("\\Device\\Harddisk{}\\Partition{}", 
-                    disk_number, partition.PartitionNumber);
-                partitions.push(partition_path);
-            }
-        }
-    }
-    
-    // 同时获取已分配盘符的分区
-    let disks = Disks::new_with_refreshed_list();
-    for disk in disks.iter() {
-        let mount_point = disk.mount_point().to_str().unwrap_or("");
-        if let Some(drive_num) = get_physical_drive_number(mount_point) {
-            if drive_num == disk_number && !mount_point.is_empty() {
-                let normalized = mount_point.trim_end_matches('\\').to_string();
-                if !partitions.contains(&normalized) {
-                    partitions.push(normalized);
-                }
-            }
-        }
-    }
-    
-    println!("磁盘 {} 的所有分区: {:?}", disk_number, partitions);
-    partitions
-}
-
 // 改进的检查分区是否包含Ventoy文件结构的函数
 fn check_partition_for_ventoy(volume_path: &str) -> bool {
     // 确保路径格式正确
@@ -549,37 +404,37 @@ fn check_partition_for_ventoy(volume_path: &str) -> bool {
     } else {
         format!("{}\\", volume_path)
     };
-    
+
     // 构建要检查的路径
     let efi_path = format!("{}EFI", base_path);
     let grub_path = format!("{}grub", base_path);
     let tool_path = format!("{}tool", base_path);
     let ventoy_path = format!("{}ventoy", base_path);
-    
+
     println!("检查Ventoy文件结构:");
     println!("  基础路径: {}", base_path);
     println!("  EFI路径: {}", efi_path);
     println!("  grub路径: {}", grub_path);
     println!("  tool路径: {}", tool_path);
     println!("  ventoy路径: {}", ventoy_path);
-    
+
     // 检查所有必需的目录是否存在
     let efi_exists = Path::new(&efi_path).exists();
     let grub_exists = Path::new(&grub_path).exists();
     let tool_exists = Path::new(&tool_path).exists();
     let ventoy_exists = Path::new(&ventoy_path).exists();
-    
+
     println!("  EFI存在: {}", efi_exists);
     println!("  grub存在: {}", grub_exists);
     println!("  tool存在: {}", tool_exists);
     println!("  ventoy存在: {}", ventoy_exists);
-    
+
     // 如果四个目录都存在，这就是Ventoy设备
     if efi_exists && grub_exists && tool_exists && ventoy_exists {
         println!("  检测到Ventoy文件结构!");
         return true;
     }
-    
+
     false
 }
 
@@ -589,7 +444,7 @@ fn is_usb_disk(disk_number: u32) -> bool {
         // 打开物理驱动器
         let device_path = format!("\\\\.\\PHYSICALDRIVE{}", disk_number);
         let wide_path = to_wide_string(&device_path);
-        
+
         let h_device = CreateFileW(
             wide_path.as_ptr(),
             0,
@@ -599,21 +454,21 @@ fn is_usb_disk(disk_number: u32) -> bool {
             0,
             ptr::null_mut(),
         );
-        
+
         if h_device == INVALID_HANDLE_VALUE {
             println!("无法打开磁盘 {}", disk_number);
             return false;
         }
-        
+
         // 准备查询存储设备属性
         let mut query: STORAGE_PROPERTY_QUERY = mem::zeroed();
         query.PropertyId = StorageDeviceProperty;
         query.QueryType = PropertyStandardQuery;
-        
+
         // 分配足够大的缓冲区
         let mut buffer: [BYTE; 1024] = [0; 1024];
         let mut bytes_returned: DWORD = 0;
-        
+
         let result = DeviceIoControl(
             h_device,
             IOCTL_STORAGE_QUERY_PROPERTY,
@@ -624,28 +479,30 @@ fn is_usb_disk(disk_number: u32) -> bool {
             &mut bytes_returned,
             ptr::null_mut(),
         );
-        
+
         CloseHandle(h_device);
-        
+
         if result != 0 && bytes_returned >= mem::size_of::<STORAGE_DEVICE_DESCRIPTOR>() as DWORD {
             let descriptor = &*(buffer.as_ptr() as *const STORAGE_DEVICE_DESCRIPTOR);
-            
-            println!("磁盘 {} - 总线类型: {}, 可移动媒体: {}", 
-                disk_number, descriptor.BusType, descriptor.RemovableMedia);
-            
+
+            println!(
+                "磁盘 {} - 总线类型: {}, 可移动媒体: {}",
+                disk_number, descriptor.BusType, descriptor.RemovableMedia
+            );
+
             // 检查总线类型是否为USB
             if descriptor.BusType == BusTypeUsb {
                 println!("磁盘 {} 是USB设备 (BusType = USB)", disk_number);
                 return true;
             }
-            
+
             // 某些USB设备可能报告为SCSI（通过USB-SCSI桥接）
             // 检查是否为可移动媒体
             if descriptor.RemovableMedia != 0 {
                 println!("磁盘 {} 是可移动设备", disk_number);
                 return true;
             }
-            
+
             // 获取产品信息用于进一步判断
             if descriptor.ProductIdOffset > 0 && descriptor.ProductIdOffset < bytes_returned {
                 let product_ptr = buffer.as_ptr().offset(descriptor.ProductIdOffset as isize);
@@ -654,7 +511,8 @@ fn is_usb_disk(disk_number: u32) -> bool {
                     product_len += 1;
                 }
                 if product_len > 0 {
-                    let product_slice = std::slice::from_raw_parts(product_ptr, product_len as usize);
+                    let product_slice =
+                        std::slice::from_raw_parts(product_ptr, product_len as usize);
                     if let Ok(product) = std::str::from_utf8(product_slice) {
                         println!("磁盘 {} 产品: {}", disk_number, product.trim());
                     }
@@ -663,7 +521,7 @@ fn is_usb_disk(disk_number: u32) -> bool {
         } else {
             println!("无法获取磁盘 {} 的属性信息", disk_number);
         }
-        
+
         // 备用方法：检查磁盘是否存在且不是系统盘
         // 这是一个临时解决方案，因为某些USB设备可能无法正确报告其总线类型
         if disk_number > 0 {
@@ -671,7 +529,7 @@ fn is_usb_disk(disk_number: u32) -> bool {
             let reg_path = format!("SYSTEM\\CurrentControlSet\\Services\\disk\\Enum");
             let wide_reg_path = to_wide_string(&reg_path);
             let mut h_key: HKEY = ptr::null_mut();
-            
+
             let reg_result = RegOpenKeyExW(
                 HKEY_LOCAL_MACHINE,
                 wide_reg_path.as_ptr(),
@@ -679,14 +537,14 @@ fn is_usb_disk(disk_number: u32) -> bool {
                 winapi::um::winnt::KEY_READ,
                 &mut h_key,
             );
-            
+
             if reg_result == ERROR_SUCCESS as i32 {
                 // 查询磁盘编号对应的值
                 let value_name = to_wide_string(&disk_number.to_string());
                 let mut buffer: [u16; 512] = [0; 512];
                 let mut buffer_size = (buffer.len() * 2) as DWORD;
                 let mut value_type: DWORD = 0;
-                
+
                 let query_result = RegQueryValueExW(
                     h_key,
                     value_name.as_ptr(),
@@ -695,31 +553,32 @@ fn is_usb_disk(disk_number: u32) -> bool {
                     buffer.as_mut_ptr() as LPBYTE,
                     &mut buffer_size,
                 );
-                
+
                 RegCloseKey(h_key);
-                
+
                 if query_result == ERROR_SUCCESS as i32 {
                     let device_id = OsString::from_wide(&buffer[..buffer_size as usize / 2 - 1])
                         .to_string_lossy()
                         .to_string();
-                    
+
                     println!("磁盘 {} 设备ID: {}", disk_number, device_id);
-                    
+
                     // 检查设备ID是否包含USB标识
-                    if device_id.to_uppercase().contains("USB") ||
-                       device_id.to_uppercase().contains("USBSTOR") {
+                    if device_id.to_uppercase().contains("USB")
+                        || device_id.to_uppercase().contains("USBSTOR")
+                    {
                         println!("磁盘 {} 通过设备ID识别为USB设备", disk_number);
                         return true;
                     }
                 }
             }
-            
+
             // 如果其他方法都失败了，对于非系统盘暂时返回true
             // 这确保了你的USB设备能被检测到
             println!("磁盘 {} 使用宽松检测模式（非系统盘）", disk_number);
             return true;
         }
-        
+
         false
     }
 }
@@ -729,7 +588,7 @@ fn get_disk_info(disk_number: u32) -> String {
     unsafe {
         let device_path = format!("\\\\.\\PHYSICALDRIVE{}", disk_number);
         let wide_path = to_wide_string(&device_path);
-        
+
         let h_device = CreateFileW(
             wide_path.as_ptr(),
             0,
@@ -739,18 +598,18 @@ fn get_disk_info(disk_number: u32) -> String {
             0,
             ptr::null_mut(),
         );
-        
+
         if h_device == INVALID_HANDLE_VALUE {
             return "USB Storage Device".to_string();
         }
-        
+
         let mut query: STORAGE_PROPERTY_QUERY = mem::zeroed();
         query.PropertyId = StorageDeviceProperty;
         query.QueryType = PropertyStandardQuery;
-        
+
         let mut buffer: [BYTE; 1024] = [0; 1024];
         let mut bytes_returned: DWORD = 0;
-        
+
         let result = DeviceIoControl(
             h_device,
             IOCTL_STORAGE_QUERY_PROPERTY,
@@ -761,15 +620,15 @@ fn get_disk_info(disk_number: u32) -> String {
             &mut bytes_returned,
             ptr::null_mut(),
         );
-        
+
         CloseHandle(h_device);
-        
+
         if result != 0 && bytes_returned >= mem::size_of::<STORAGE_DEVICE_DESCRIPTOR>() as DWORD {
             let descriptor = &*(buffer.as_ptr() as *const STORAGE_DEVICE_DESCRIPTOR);
-            
+
             // 构建设备名称
             let mut device_name = String::new();
-            
+
             // 获取厂商信息
             if descriptor.VendorIdOffset > 0 && descriptor.VendorIdOffset < bytes_returned {
                 let vendor_ptr = buffer.as_ptr().offset(descriptor.VendorIdOffset as isize);
@@ -785,7 +644,7 @@ fn get_disk_info(disk_number: u32) -> String {
                     }
                 }
             }
-            
+
             // 获取产品信息
             if descriptor.ProductIdOffset > 0 && descriptor.ProductIdOffset < bytes_returned {
                 let product_ptr = buffer.as_ptr().offset(descriptor.ProductIdOffset as isize);
@@ -794,18 +653,19 @@ fn get_disk_info(disk_number: u32) -> String {
                     product_len += 1;
                 }
                 if product_len > 0 {
-                    let product_slice = std::slice::from_raw_parts(product_ptr, product_len as usize);
+                    let product_slice =
+                        std::slice::from_raw_parts(product_ptr, product_len as usize);
                     if let Ok(product) = std::str::from_utf8(product_slice) {
                         device_name.push_str(product.trim());
                     }
                 }
             }
-            
+
             if !device_name.is_empty() {
                 return device_name;
             }
         }
-        
+
         "USB Storage Device".to_string()
     }
 }
@@ -815,7 +675,7 @@ fn get_disk_size(disk_number: u32) -> u64 {
     unsafe {
         let device_path = format!("\\\\.\\PHYSICALDRIVE{}", disk_number);
         let wide_path = to_wide_string(&device_path);
-        
+
         let h_device = CreateFileW(
             wide_path.as_ptr(),
             GENERIC_READ,
@@ -825,14 +685,14 @@ fn get_disk_size(disk_number: u32) -> u64 {
             0,
             ptr::null_mut(),
         );
-        
+
         if h_device == INVALID_HANDLE_VALUE {
             return 0;
         }
-        
+
         let mut disk_geometry_ex: DISK_GEOMETRY_EX = mem::zeroed();
         let mut bytes_returned: DWORD = 0;
-        
+
         let result = DeviceIoControl(
             h_device,
             IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
@@ -843,9 +703,9 @@ fn get_disk_size(disk_number: u32) -> u64 {
             &mut bytes_returned,
             ptr::null_mut(),
         );
-        
+
         CloseHandle(h_device);
-        
+
         if result != 0 {
             disk_geometry_ex.DiskSize as u64
         } else {
@@ -857,14 +717,14 @@ fn get_disk_size(disk_number: u32) -> u64 {
 // 获取同一物理磁盘的所有分区
 fn get_all_partitions_for_disk(disk_number: u32, disks: &Disks) -> Vec<String> {
     let mut partitions = Vec::new();
-    
+
     println!("查找磁盘 {} 的所有分区...", disk_number);
-    
+
     for disk in disks.iter() {
         let mount_point = disk.mount_point().to_str().unwrap_or("");
         let label = disk.name().to_string_lossy();
         println!("  检查分区: {} (标签: {})", mount_point, label);
-        
+
         if let Some(drive_num) = get_physical_drive_number(mount_point) {
             println!("    物理驱动器编号: {}", drive_num);
             if drive_num == disk_number {
@@ -878,94 +738,107 @@ fn get_all_partitions_for_disk(disk_number: u32, disks: &Disks) -> Vec<String> {
             }
         }
     }
-    
+
     partitions.sort();
-    println!("磁盘 {} 找到 {} 个分区: {:?}", disk_number, partitions.len(), partitions);
+    println!(
+        "磁盘 {} 找到 {} 个分区: {:?}",
+        disk_number,
+        partitions.len(),
+        partitions
+    );
     partitions
 }
 
 #[command]
 pub async fn get_usb_devices() -> Result<Vec<UsbDevice>, String> {
     let mut devices = Vec::new();
-    let mut sys = System::new_all();
     let mut disks = Disks::new_with_refreshed_list();
-    
+
     let mut processed_disks = std::collections::HashSet::new();
-    
+
     // 扫描所有物理磁盘（0-127）
     for disk_number in 0..128u32 {
         // 检查物理驱动器是否存在
         if get_physical_drive_number_from_path(disk_number).is_none() {
             continue;
         }
-        
+
         // 检查是否为USB设备（使用WinAPI）
         if !is_usb_disk(disk_number) {
             continue;
         }
-        
+
         // 避免重复处理
         if processed_disks.contains(&disk_number) {
             continue;
         }
         processed_disks.insert(disk_number);
-        
+
         // 获取磁盘信息（使用WinAPI）
         let model = get_disk_info(disk_number);
         let disk_size = get_disk_size(disk_number);
-        
+
         // 获取该物理磁盘的所有分区
         let all_partitions = get_all_partitions_for_disk(disk_number, &disks);
-        
+
         // 如果有分区，计算所有分区的总容量
         let mut total_size = disk_size;
         if !all_partitions.is_empty() && disk_size == 0 {
             total_size = 0;
             for partition in &all_partitions {
                 for d in disks.iter() {
-                    if d.mount_point().to_str().unwrap_or("").trim_end_matches('\\') == partition {
+                    if d.mount_point()
+                        .to_str()
+                        .unwrap_or("")
+                        .trim_end_matches('\\')
+                        == partition
+                    {
                         total_size += d.total_space();
                         break;
                     }
                 }
             }
         }
-        
+
         // 检查是否为Ventoy设备
         let skip_select = is_ventoy_device(disk_number);
-        
+
         if skip_select {
             println!("磁盘 {} 识别为Ventoy设备", disk_number);
         }
-        
+
         // 构建显示名称
         let base_name = if all_partitions.is_empty() {
             // 无分区的设备
             format!("[{}] {}", format_size(total_size), model)
         } else {
             // 有分区的设备
-            format!("{} [{}] {}", 
-                all_partitions.join(" "), 
-                format_size(total_size), 
+            format!(
+                "{} [{}] {}",
+                all_partitions.join(" "),
+                format_size(total_size),
                 model
             )
         };
-        
+
         let name = if skip_select {
             format!("{} (Ventoy)", base_name)
         } else {
             base_name
         };
-        
+
         devices.push(UsbDevice {
             phydrive: disk_number,
             name,
             skip_select,
         });
-        
-        println!("检测到USB设备: PhysicalDrive{} - {} (Ventoy: {})", disk_number, model, skip_select);
+
+        println!(
+            "检测到USB设备: PhysicalDrive{} - {} (Ventoy: {})",
+            disk_number, model, skip_select
+        );
     }
-    
+
     if devices.is_empty() {
         Err("未检测到任何USB存储设备".to_string())
     } else {
@@ -981,9 +854,10 @@ pub async fn get_usb_devices() -> Result<Vec<UsbDevice>, String> {
 pub async fn get_system_boot_mode() -> Result<String, String> {
     unsafe {
         // 方法1: 检查UEFI固件变量
-        let firmware_type_path = to_wide_string("SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State");
+        let firmware_type_path =
+            to_wide_string("SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State");
         let mut h_key: HKEY = ptr::null_mut();
-        
+
         let result = RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
             firmware_type_path.as_ptr(),
@@ -991,16 +865,16 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
             winapi::um::winnt::KEY_READ,
             &mut h_key,
         );
-        
+
         if result == ERROR_SUCCESS as i32 {
             RegCloseKey(h_key);
             return Ok("UEFI".to_string());
         }
-        
+
         // 方法2: 检查EFI系统分区
         let efi_path = to_wide_string("SYSTEM\\CurrentControlSet\\Control");
         let mut efi_key: HKEY = ptr::null_mut();
-        
+
         let efi_result = RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
             efi_path.as_ptr(),
@@ -1008,13 +882,13 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
             winapi::um::winnt::KEY_READ,
             &mut efi_key,
         );
-        
+
         if efi_result == ERROR_SUCCESS as i32 {
             let value_name = to_wide_string("PEFirmwareType");
             let mut value_type: DWORD = 0;
             let mut value_data: DWORD = 0;
             let mut value_size = mem::size_of::<DWORD>() as DWORD;
-            
+
             let query_result = RegQueryValueExW(
                 efi_key,
                 value_name.as_ptr(),
@@ -1023,9 +897,9 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
                 &mut value_data as *mut _ as LPBYTE,
                 &mut value_size,
             );
-            
+
             RegCloseKey(efi_key);
-            
+
             if query_result == ERROR_SUCCESS as i32 {
                 // 1 = BIOS, 2 = UEFI
                 if value_data == 2 {
@@ -1033,11 +907,12 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
                 }
             }
         }
-        
+
         // 方法3: 检查是否存在EFI相关的环境变量
-        let env_path = to_wide_string("SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment");
+        let env_path =
+            to_wide_string("SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment");
         let mut env_key: HKEY = ptr::null_mut();
-        
+
         let env_result = RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
             env_path.as_ptr(),
@@ -1045,13 +920,13 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
             winapi::um::winnt::KEY_READ,
             &mut env_key,
         );
-        
+
         if env_result == ERROR_SUCCESS as i32 {
             let firmware_value = to_wide_string("firmware_type");
             let mut buffer: [u16; 256] = [0; 256];
             let mut buffer_size = (buffer.len() * 2) as DWORD;
             let mut value_type: DWORD = 0;
-            
+
             let query_result = RegQueryValueExW(
                 env_key,
                 firmware_value.as_ptr(),
@@ -1060,9 +935,9 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
                 buffer.as_mut_ptr() as LPBYTE,
                 &mut buffer_size,
             );
-            
+
             RegCloseKey(env_key);
-            
+
             if query_result == ERROR_SUCCESS as i32 {
                 let value_str = OsString::from_wide(&buffer[..buffer_size as usize / 2])
                     .to_string_lossy()
@@ -1073,7 +948,7 @@ pub async fn get_system_boot_mode() -> Result<String, String> {
             }
         }
     }
-    
+
     // 默认返回 MBR/Legacy BIOS
     Ok("MBR".to_string())
 }
@@ -1154,6 +1029,17 @@ pub async fn deploy_to_usb(drive_letter: String) -> Result<ApiResponse, String> 
         Err(e) => println!("base64解码失败，跳过图标创建: {}", e),
     }
 
+    // 下载默认插件（维护插件）
+    println!("开始下载默认插件...");
+    match get_and_download_default_plugin(&ce_apps_path).await {
+        Ok(downloaded_file) => {
+            println!("默认插件下载成功: {}", downloaded_file);
+        }
+        Err(e) => {
+            println!("默认插件下载失败，但部署继续: {}", e);
+        }
+    }
+
     Ok(ApiResponse {
         success: true,
         message: format!("成功部署到您的U盘: {}", drive_letter),
@@ -1169,38 +1055,36 @@ pub async fn deploy_to_usb(drive_letter: String) -> Result<ApiResponse, String> 
 
 // 获取PE版本
 async fn get_pe_version() -> Result<String, reqwest::Error> {
-    let response = reqwest::get("https://api.ce-ramos.cn/GetInfo/").await?;
+    let response = reqwest::get("https://api.cloud-pe.cn/GetInfo/").await?;
     let version: Value = response.json().await?;
     let version_str = version["data"]["cloud_pe"]
         .as_str()
         .unwrap_or("1.0")
         .to_string();
-    
+
     Ok(version_str.replace("v", ""))
 }
 
 #[command]
 pub async fn restart_app() -> Result<ApiResponse, String> {
     println!("重启应用程序...");
-    
+
     match env::current_exe() {
-        Ok(exe_path) => {
-            match Command::new(&exe_path).spawn() {
-                Ok(_) => {
-                    tokio::spawn(async {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                        std::process::exit(0);
-                    });
-                    
-                    Ok(ApiResponse {
-                        success: true,
-                        message: "应用程序将在1秒后重启".to_string(),
-                        data: None,
-                    })
-                }
-                Err(e) => Err(format!("重启失败: {}", e)),
+        Ok(exe_path) => match Command::new(&exe_path).spawn() {
+            Ok(_) => {
+                tokio::spawn(async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    std::process::exit(0);
+                });
+
+                Ok(ApiResponse {
+                    success: true,
+                    message: "应用程序将在1秒后重启".to_string(),
+                    data: None,
+                })
             }
-        }
+            Err(e) => Err(format!("重启失败: {}", e)),
+        },
         Err(e) => Err(format!("获取程序路径失败: {}", e)),
     }
 }
@@ -1208,15 +1092,55 @@ pub async fn restart_app() -> Result<ApiResponse, String> {
 #[command]
 pub async fn close_app() -> Result<ApiResponse, String> {
     println!("关闭应用程序...");
-    
+
     tokio::spawn(async {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         std::process::exit(0);
     });
-    
+
     Ok(ApiResponse {
         success: true,
         message: "应用程序将在0.5秒后关闭".to_string(),
         data: None,
     })
+}
+
+async fn get_and_download_default_plugin(ce_apps_path: &str) -> Result<String, String> {
+    // 获取API信息
+    let client = reqwest::Client::new();
+    let response = match client
+        .get("https://api.cloud-pe.cn/GetInfo/?m=1")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => return Err(format!("获取API信息失败: {}", e)),
+    };
+
+    let json_data: Value = match response.json().await {
+        Ok(data) => data,
+        Err(e) => return Err(format!("解析JSON失败: {}", e)),
+    };
+
+    // 提取default_plugin链接
+    let default_plugin_url = match json_data["default_plugin"].as_str() {
+        Some(url) => url,
+        None => return Err("未找到default_plugin字段".to_string()),
+    };
+
+    println!("默认插件下载链接: {}", default_plugin_url);
+
+    // 使用download_plugin_file函数下载
+    let save_path = PathBuf::from(ce_apps_path);
+    match download_plugin_file(
+        default_plugin_url.to_string(),
+        save_path,
+        16, // 使用16线程
+    )
+    .await
+    {
+        Ok(downloaded_path) => Ok(downloaded_path),
+        Err(e) => Err(format!("下载失败: {}", e)),
+    }
 }

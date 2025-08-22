@@ -1,15 +1,15 @@
-// src-tauri/src/plugins.rs
-
-use futures_util::StreamExt;
+use anyhow::Result;
+use std::fs;
+use std::path::Path;
+use url::Url;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::Path;
 use tauri::command;
-use url::Url;
+use crate::download::{download_plugin_file, get_file_info};
+use reqwest::Client;
 
-// 插件信息结构体
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0";
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
     name: String,
@@ -20,187 +20,39 @@ pub struct PluginInfo {
     file: String,
 }
 
-// 从URL的响应头中提取文件名
-async fn extract_filename(url: &Url) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-    let response = client.head(url.as_str()).send().await?;
-
-    // 尝试从Content-Disposition头解析
-    if let Some(content_disposition) = response.headers().get(reqwest::header::CONTENT_DISPOSITION)
-    {
-        if let Ok(cd) = content_disposition.to_str() {
-            if let Some(name) = parse_content_disposition(cd) {
-                return Ok(urlencoding::decode(&name)?.to_string());
-            }
-        }
-    }
-
-    // 从URL路径最后一段获取文件名
-    Ok(url
-        .path_segments()
-        .and_then(|segments| segments.last())
-        .unwrap_or("unknown_file")
-        .to_string())
-}
-
-// 解析Content-Disposition头中的文件名
-fn parse_content_disposition(cd: &str) -> Option<String> {
-    cd.split("filename=")
-        .nth(1)
-        .and_then(|s| {
-            let s = s.trim().trim_matches('"').trim_matches('\'');
-            s.split(';').next().map(|s| s.to_string())
-        })
-        .filter(|s| !s.is_empty())
-}
-
-// 下载插件，支持线程数参数
 #[command]
 pub async fn download_plugin(
     url: String,
     path: String,
     file_name: Option<String>,
-    threads: Option<u32>, // 添加线程数参数
+    threads: Option<u32>,
 ) -> Result<String, String> {
-    // 使用提供的线程数或默认值
-    let thread_count = threads.unwrap_or(8);
+    let thread_count = threads.unwrap_or(8) as u16;
+    let url_parsed = Url::parse(&url).map_err(|e| e.to_string())?;
 
-    // 解析URL
-    let url = Url::parse(&url).map_err(|e| e.to_string())?;
-
-    // 确保下载目录存在
     let download_dir = Path::new(&path);
     if !download_dir.exists() {
         fs::create_dir_all(download_dir).map_err(|e| e.to_string())?;
     }
 
-    // 确定文件名
-    let file_name = if let Some(name) = file_name {
-        name
-    } else {
-        extract_filename(&url).await.map_err(|e| e.to_string())?
-    };
+    let client = Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
 
-    // 构建完整的文件路径
-    let file_path = download_dir.join(&file_name);
-
-    // 创建HTTP客户端
-    let client = reqwest::Client::new();
-
-    // 获取文件大小
-    let response = client
-        .head(url.as_str())
-        .send()
+    let (_, filename, _, _) = get_file_info(&client, &url_parsed)
         .await
         .map_err(|e| e.to_string())?;
-    let total_size = response
-        .headers()
-        .get(reqwest::header::CONTENT_LENGTH)
-        .and_then(|ct_len| ct_len.to_str().ok())
-        .and_then(|ct_len| ct_len.parse::<u64>().ok())
-        .unwrap_or(0);
 
-    // 如果文件大小为0或无法确定，使用单线程下载
-    if total_size == 0 {
-        return download_single_thread(url.as_str(), &file_path).await;
-    }
+    let final_filename = file_name.unwrap_or(filename);
+    let file_path = download_dir.join(&final_filename);
 
-    // 使用多线程下载
-    download_multi_thread(url.as_str(), &file_path, total_size, thread_count as usize).await
+    download_plugin_file(url, file_path, thread_count)
+        .await
+        .map_err(|e| e.to_string())
 }
 
-// 单线程下载
-async fn download_single_thread(
-    url: &str,
-    file_path: &Path,
-) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
-    let mut file = File::create(file_path).map_err(|e| e.to_string())?;
-    let mut stream = response.bytes_stream();
-
-    // 下载文件
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-    }
-
-    Ok(file_path.to_string_lossy().to_string())
-}
-
-// 多线程下载
-async fn download_multi_thread(
-    url: &str,
-    file_path: &Path,
-    total_size: u64,
-    thread_count: usize,
-) -> Result<String, String> {
-    // 创建临时目录存放分片
-    let temp_dir = file_path.with_extension("tmp");
-    if temp_dir.exists() {
-        fs::remove_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-    }
-    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-
-    // 计算每个线程下载的大小
-    let chunk_size = total_size / thread_count as u64;
-    let mut handles = vec![];
-    let client = reqwest::Client::new();
-
-    // 启动下载线程
-    for i in 0..thread_count {
-        let start = i as u64 * chunk_size;
-        let end = if i == thread_count - 1 {
-            total_size
-        } else {
-            (i as u64 + 1) * chunk_size - 1
-        };
-
-        let client = client.clone();
-        let url = url.to_string();
-        let temp_file = temp_dir.join(format!("part_{}", i));
-
-        let handle = tokio::spawn(async move {
-            let mut file = File::create(&temp_file).map_err(|e| e.to_string())?;
-            let response = client
-                .get(&url)
-                .header("Range", format!("bytes={}-{}", start, end))
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let mut stream = response.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| e.to_string())?;
-                file.write_all(&chunk).map_err(|e| e.to_string())?;
-            }
-
-            Ok::<_, String>(())
-        });
-
-        handles.push(handle);
-    }
-
-    // 等待所有线程完成
-    for handle in handles {
-        handle.await.map_err(|e| e.to_string())??;
-    }
-
-    // 合并文件
-    let mut output_file = File::create(file_path).map_err(|e| e.to_string())?;
-    for i in 0..thread_count {
-        let part_file = temp_dir.join(format!("part_{}", i));
-        let content = fs::read(&part_file).map_err(|e| e.to_string())?;
-        output_file.write_all(&content).map_err(|e| e.to_string())?;
-    }
-
-    // 清理临时文件
-    fs::remove_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-
-    Ok(file_path.to_string_lossy().to_string())
-}
-
-// 获取插件文件列表
 #[command]
 pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<PluginInfo>>, String> {
     let ce_apps_dir = format!("{}\\ce-apps", drive_letter);
@@ -232,7 +84,6 @@ pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<Plug
                         let version = parts[1].to_string();
                         let author = parts[2].to_string();
 
-                        // 获取描述（最后一部分，去掉扩展名）
                         let describe_with_ext = parts[3..].join("_");
                         let describe = describe_with_ext
                             .strip_suffix(".ce")
@@ -240,7 +91,6 @@ pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<Plug
                             .unwrap_or(&describe_with_ext)
                             .to_string();
 
-                        // 获取文件大小
                         let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
                         let size = format!("{:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
 
@@ -271,7 +121,6 @@ pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<Plug
     Ok(result)
 }
 
-// 启用插件
 #[command]
 pub fn enable_plugin(drive_letter: String, file_name: String) -> Result<bool, String> {
     let ce_apps_dir = format!("{}\\ce-apps", drive_letter);
@@ -286,14 +135,12 @@ pub fn enable_plugin(drive_letter: String, file_name: String) -> Result<bool, St
         return Err(format!("文件 {} 不存在", file_name));
     }
 
-    // 检查文件是否已经是.ce扩展名
     if let Some(extension) = file_path.extension() {
         if extension.to_string_lossy().to_lowercase() == "ce" {
-            return Ok(true); // 已经是启用状态
+            return Ok(true);
         }
     }
 
-    // 将.CBK扩展名改为.ce
     let new_file_name = file_name.replace(".CBK", ".ce");
     let new_file_path = dir_path.join(&new_file_name);
 
@@ -302,7 +149,6 @@ pub fn enable_plugin(drive_letter: String, file_name: String) -> Result<bool, St
     Ok(true)
 }
 
-// 禁用插件
 #[command]
 pub fn disable_plugin(drive_letter: String, file_name: String) -> Result<bool, String> {
     let ce_apps_dir = format!("{}\\ce-apps", drive_letter);
@@ -317,14 +163,12 @@ pub fn disable_plugin(drive_letter: String, file_name: String) -> Result<bool, S
         return Err(format!("文件 {} 不存在", file_name));
     }
 
-    // 检查文件是否已经是.CBK扩展名
     if let Some(extension) = file_path.extension() {
         if extension.to_string_lossy().to_lowercase() == "cbk" {
-            return Ok(true); // 已经是禁用状态
+            return Ok(true);
         }
     }
 
-    // 将.ce扩展名改为.CBK
     let new_file_name = file_name.replace(".ce", ".CBK");
     let new_file_path = dir_path.join(&new_file_name);
 

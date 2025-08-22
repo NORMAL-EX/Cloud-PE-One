@@ -20,8 +20,14 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": false,
-        "transparent": false
-    }
+        "transparent": true,
+        "visible": false,
+        "windowEffects": {
+          "effects": ["mica"],
+          "state": "active",
+          "radius": 12.0
+        }
+      }
     ],
     "security": {
       "csp": null
@@ -30,7 +36,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "copyright": "© 2025-Present Cloud-PE Dev (@RUZ-EX & @Hello,World!)",
+    "copyright": "© 2025-Present Cloud-PE Dev (@dddffgg & @Hello,World!)",
     "icon": [
       "icons/icon.ico"
     ]
@@ -39,6 +45,4 @@
     "store": null,
     "process": { "all": true }
   }
-
 }
-

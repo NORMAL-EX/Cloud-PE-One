@@ -39,7 +39,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
     pluginsError,
     isGeneratingIso,
     isCreatingBootDrive,
-    isUpgradingBootDrive
+    isUpgradingBootDrive,
+    isNetworkConnected
   } = useAppContext();
   
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
@@ -64,6 +65,18 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
     setIsCollapsed(collapsed);
     // 重置点击状态
     setClickedInCollapsedState(false);
+  };
+
+  // 检查是否为需要网络连接的页面
+  const requiresNetworkConnection = (page: string): boolean => {
+    const networkRequiredPages = [
+      'create-boot-drive',
+      'create-iso',
+      'upgrade-boot-drive',
+      'download-plugins',
+      'docs'
+    ];
+    return networkRequiredPages.includes(page);
   };
 
   // 修复类型错误的菜单点击处理函数
@@ -99,6 +112,18 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
       Notification.warning({
         title: '提示',
         content: '升级启动盘中，不可切换页面！',
+        duration: 3
+      });
+      // 阻止切换时，恢复之前的选中状态
+      setSelectedKeys([currentPage]);
+      return;
+    }
+    
+    // 检查离线模式限制
+    if (!isNetworkConnected && requiresNetworkConnection(itemKey)) {
+      Notification.warning({
+        title: '提示',
+        content: '当前处于离线模式，不可使用该功能！',
         duration: 3
       });
       // 阻止切换时，恢复之前的选中状态
@@ -166,6 +191,16 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
         return;
       }
       
+      // 检查离线模式限制
+      if (!isNetworkConnected) {
+        Notification.warning({
+          title: '提示',
+          content: '当前处于离线模式，不可切换页面！',
+          duration: 3
+        });
+        return;
+      }
+      
       // 设置全局搜索关键词
       setSearchKeyword(localSearchValue);
       // 更新选中状态
@@ -219,7 +254,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
   }, [currentPage]);
 
   // 判断是否应该显示搜索框
-  const shouldShowSearchBox = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0;
+  const shouldShowSearchBox = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0 && isNetworkConnected;
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>

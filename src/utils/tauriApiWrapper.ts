@@ -5,6 +5,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readTextFile as fsReadTextFile, writeTextFile as fsWriteTextFile, exists as fsExists, mkdir as fsMkdir } from "@tauri-apps/plugin-fs";
 import { save as dialogSave } from "@tauri-apps/plugin-dialog";
 
+// 获取当前用户名
+export const getCurrentUsername = async (): Promise<string> => {
+  try {
+    const username = await invoke<string>('get_current_username');
+    return username;
+  } catch (error) {
+    console.error('获取用户名失败:', error);
+    return '用户';
+  }
+};
+
 // 定义通用的命令参数和结果类型，如果你的 invoke 命令有特定类型，可以更精确地定义
 type CommandArgs = Record<string, unknown>;
 type CommandResult<T> = T;
@@ -144,9 +155,6 @@ export const saveFileDialog = async (
   defaultFilename: string
 ): Promise<string | null> => {
   try {
-    // 注意：defaultPath 在 Tauri 的 save 对话框中通常是可选的，
-    // 并且其格式可能因操作系统而异。这里保留了你原有的 Windows 路径示例，
-    // 但在实际应用中可能需要更通用的路径或让用户选择。
     return await dialogSave({
       defaultPath: `%USERPROFILE%\\Downloads\\${defaultFilename}`, // 示例路径，可能需要根据实际情况调整
       filters: [

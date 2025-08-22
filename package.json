@@ -13,9 +13,13 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@douyinfe/semi-foundation": "^2.83.0",
     "@douyinfe/semi-icons": "^2.80.0",
     "@douyinfe/semi-icons-lab": "^2.80.0",
-    "@douyinfe/semi-ui": "^2.80.0",
+    "@douyinfe/semi-theme-default": "^2.83.0",
+    "@douyinfe/semi-ui": "^2.83.0",
+    "@semi-bot/semi-theme-jianying": "^1.0.4",
+    "@semi-bot/semi-theme-strapi": "^0.1.4",
     "@tauri-apps/api": "^2.6.0",
     "@tauri-apps/plugin-dialog": "^2.3.0",
     "@tauri-apps/plugin-fs": "^2.4.0",
@@ -37,6 +41,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "sass": "^1.89.2",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5"

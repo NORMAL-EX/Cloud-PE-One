@@ -82,7 +82,7 @@ const handleUpdate = async () => {
 
   return (
     <Modal
-      title={canSkip ? "🎉Cloud-PE One 有可用的更新，是否立即升级？" : "😥您目前所使用的Cloud-PE One已被抛弃，请立即升级新版本以继续使用该软件"}
+      title={canSkip ? "🎉Cloud-PE One 有可用的更新，是否立即升级？" : "😥看起来您目前所使用的Cloud-PE One版本已被放弃，请立即升级至新版本以继续使用该软件"}
       visible={visible}
       onCancel={canSkip ? onClose : undefined}
       closeOnEsc={canSkip}

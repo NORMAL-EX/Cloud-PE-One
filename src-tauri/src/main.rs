@@ -3,8 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-mod lib;
-use lib::set_config;
+mod download;
 mod downloader;
 mod plugins;
 mod updater;
@@ -16,6 +15,7 @@ use tauri::Manager;
 use updater::{download_update, get_app_download_status, install_update};
 
 use std::process::Command;
+use std::path::Path;
 
 fn main() {
     tauri::Builder::default()
@@ -34,6 +34,7 @@ fn main() {
             disable_plugin,
             // 启动盘相关命令
             check_boot_drive,
+            check_all_boot_drives, // 新增
             get_all_drives,
             read_boot_drive_version,
             get_drive_info,
@@ -47,17 +48,45 @@ fn main() {
             usb_api::deploy_to_usb,
             usb_api::restart_app,
             usb_api::close_app,
-            // 新增Ventoy安装命令
+            // Ventoy安装命令
             install_ventoy,
-
+            // 用户名获取命令
+            get_current_username,
+            check_mica_support,
+            check_transparency_enabled,
+            // devtools
+            open_devtools,
             exit_app
         ])
         .setup(|app| {
+            // 获取主窗口但不显示
+            let window = app.get_webview_window("main").unwrap();
+            window.hide().unwrap();
+    
+            // 检查Ventoy程序
+            let exe_path = std::env::current_exe().map_err(|e| format!("获取exe路径失败: {}", e))?;
+            let app_dir = exe_path.parent().ok_or("无法获取exe父目录")?.to_path_buf();
+            let ventoy_exe = format!("{}\\ventoy\\Ventoy2Disk.exe", app_dir.display());
+    
+            if !Path::new(&ventoy_exe).exists() {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+        
+                app.dialog()
+                    .message("软件已损坏，请到官网重新下载")
+                    .title("软件启动时遇到错误")
+                    .kind(MessageDialogKind::Error)  // 设置错误图标
+                    .blocking_show();
+        
+                std::process::exit(0);
+            }
+    
+            // 检查通过后显示窗口
+            window.show().unwrap();
+    
             set_config(app);
 
             #[cfg(debug_assertions)]
             {
-                let window = app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
 
@@ -65,6 +94,148 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// 命令1：检查 Mica 支持（只检查系统版本）
+#[tauri::command]
+fn check_mica_support() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winapi::um::winnt::RTL_OSVERSIONINFOW;
+        use winapi::shared::ntdef::NTSTATUS;
+        use winapi::shared::ntstatus::STATUS_SUCCESS;
+
+        unsafe {
+            let mut osvi: RTL_OSVERSIONINFOW = std::mem::zeroed();
+            osvi.dwOSVersionInfoSize = std::mem::size_of::<RTL_OSVERSIONINFOW>() as u32;
+
+            // 使用 RtlGetVersion 从 ntdll.dll
+            let ntdll = winapi::um::libloaderapi::GetModuleHandleA(b"ntdll.dll\0".as_ptr() as *const i8);
+            if ntdll.is_null() {
+                return Err("无法加载 ntdll.dll".to_string());
+            }
+
+            let rtl_get_version = winapi::um::libloaderapi::GetProcAddress(
+                ntdll,
+                b"RtlGetVersion\0".as_ptr() as *const i8,
+            );
+
+            if rtl_get_version.is_null() {
+                return Err("无法找到 RtlGetVersion 函数".to_string());
+            }
+
+            let rtl_get_version: extern "system" fn(*mut RTL_OSVERSIONINFOW) -> NTSTATUS =
+                std::mem::transmute(rtl_get_version);
+
+            let status = rtl_get_version(&mut osvi);
+            if status == STATUS_SUCCESS {
+                // Windows 11 需要 Build 22621 或更高
+                let is_windows_11 = osvi.dwMajorVersion >= 10 && osvi.dwBuildNumber >= 22621;
+                Ok(is_windows_11)
+            } else {
+                Err("获取系统版本失败".to_string())
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false) // 非 Windows 系统不支持
+    }
+}
+
+// 命令2：检查透明度效果是否启用
+#[tauri::command]
+fn check_transparency_enabled() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winapi::um::winreg::*;
+        use winapi::um::winnt::*;
+        use winapi::shared::minwindef::*;
+        use winapi::shared::winerror::*;
+
+        unsafe {
+            let mut key: HKEY = std::ptr::null_mut();
+            let key_path = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0";
+
+            // 打开注册表键
+            let result = RegOpenKeyExA(
+                HKEY_CURRENT_USER,
+                key_path.as_ptr() as *const i8,
+                0,
+                KEY_READ,
+                &mut key,
+            );
+
+            if result == ERROR_SUCCESS as i32 {
+                let mut value: DWORD = 1; // 默认启用
+                let mut size = std::mem::size_of::<DWORD>() as DWORD;
+                let value_name = "EnableTransparency\0";
+
+                // 读取透明度设置
+                let query_result = RegQueryValueExA(
+                    key,
+                    value_name.as_ptr() as *const i8,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &mut value as *mut DWORD as *mut BYTE,
+                    &mut size,
+                );
+
+                RegCloseKey(key);
+
+                if query_result == ERROR_SUCCESS as i32 {
+                    Ok(value != 0)
+                } else {
+                    Ok(true) // 如果读取失败，假设启用透明度
+                }
+            } else {
+                Err("无法打开注册表键".to_string())
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false) // 非 Windows 系统返回 false
+    }
+}
+
+// 获取当前用户名
+#[tauri::command]
+fn get_current_username() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::env;
+        match env::var("USERNAME") {
+            Ok(username) => Ok(username),
+            Err(_) => {
+                // 如果环境变量获取失败，尝试使用 whoami 库
+                use std::process::Command;
+                match Command::new("whoami").output() {
+                    Ok(output) => {
+                        let username = String::from_utf8_lossy(&output.stdout)
+                            .trim()
+                            .split('\\')
+                            .last()
+                            .unwrap_or("用户")
+                            .to_string();
+                        Ok(username)
+                    }
+                    Err(_) => Ok("用户".to_string()),
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::env;
+        match env::var("USER") {
+            Ok(username) => Ok(username),
+            Err(_) => Ok("用户".to_string()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -89,13 +260,9 @@ async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String
 
     // 获取应用程序安装目录（exe所在目录）
     println!("获取应用程序安装目录...");
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("获取exe路径失败: {}", e))?;
-    
-    let app_dir = exe_path
-        .parent()
-        .ok_or("无法获取exe父目录")?
-        .to_path_buf();
+    let exe_path = std::env::current_exe().map_err(|e| format!("获取exe路径失败: {}", e))?;
+
+    let app_dir = exe_path.parent().ok_or("无法获取exe父目录")?.to_path_buf();
 
     println!("应用程序安装目录: {}", app_dir.display());
 
@@ -144,7 +311,7 @@ async fn install_ventoy(physical_drive: u32, boot_mode: String) -> Result<String
     }
 }
 
-// 检测启动盘
+// 检测单个启动盘（保留原有函数）
 #[tauri::command]
 async fn check_boot_drive() -> Result<Option<BootDriveInfo>, String> {
     use std::path::Path;
@@ -168,6 +335,35 @@ async fn check_boot_drive() -> Result<Option<BootDriveInfo>, String> {
         }
     }
     Ok(None)
+}
+
+// 新增：检测所有启动盘
+#[tauri::command]
+async fn check_all_boot_drives() -> Result<Vec<BootDriveInfo>, String> {
+    use std::path::Path;
+    let mut boot_drives = Vec::new();
+    let drives = get_all_drives().await?;
+    
+    for drive in drives {
+        let config_path = format!("{}\\cloud-pe\\config.json", drive);
+        let iso_path = format!("{}\\Cloud-PE.iso", drive);
+
+        // 检查两个文件是否同时存在
+        if Path::new(&config_path).exists() && Path::new(&iso_path).exists() {
+            match read_boot_drive_version(drive.clone()).await {
+                Ok(version) => {
+                    boot_drives.push(BootDriveInfo {
+                        letter: drive,
+                        version,
+                        is_boot_drive: true,
+                    });
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+    
+    Ok(boot_drives)
 }
 
 // 响应启动盘更改
@@ -260,12 +456,56 @@ async fn download_file_to_path(
     app: tauri::AppHandle,
     url: String,
     save_path: String,
-    thread: Option<u8>,
+    thread: Option<u16>,
 ) -> Result<String, String> {
     let thread_count = thread.unwrap_or(8);
 
     match download_file_with_progress(app, url, save_path, thread_count).await {
         Ok(file_path) => Ok(file_path),
         Err(e) => Err(format!("下载失败: {}", e)),
+    }
+}
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{env, path::PathBuf};
+use tauri_plugin_store::StoreExt;
+
+#[derive(Deserialize, Serialize)]
+struct Config {
+    thread: u32,
+    path: String,
+}
+
+pub fn set_config(app: &tauri::App) {
+    let exe_path = env::current_exe().expect("Failed to get current executable path");
+    let dir = PathBuf::from(exe_path.parent().unwrap());
+    let dir_string = dir.display().to_string();
+    let config = Config {
+        thread: 4,
+        path: format!("{}\\temp", dir_string),
+    };
+    
+    let store = app.store("store.json").expect("Failed to open store");
+    match store.get("thread") {
+        None => {
+            store.set("thread".to_string(), json!({ "thread": 4 }));
+            store.set("path".to_string(), json!({ "path": config.path }));
+            store.save().expect("Failed to save store");
+        }
+        Some(_) => {
+            println!("{}", store.get("thread").unwrap())
+        }
+    }
+}
+
+// fuck s-1-5-21
+#[tauri::command]
+fn open_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.open_devtools();
+        Ok(())
+    } else {
+        Err("无法找到主窗口".to_string())
     }
 }
