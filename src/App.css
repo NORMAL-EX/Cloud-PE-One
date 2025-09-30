@@ -6,7 +6,7 @@
 }
 
 .semi-banner {
-  border-radius: 4px;
+  border-radius: var(--semi-border-radius-small);
 }
 
 /* 自定义滚动条样式 */

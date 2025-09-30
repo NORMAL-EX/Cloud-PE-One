@@ -1,5 +1,15 @@
+
+
 @import '@douyinfe/semi-ui/dist/css/semi.min.css';
 @import './emoji.css';
+
+.semi-switch-checked , .semi-switch-checked:hover {
+  background-color: var(--semi-color-info) !important;
+}
+
+* {
+  --semi-border-radius-small: 6px !important;
+}
 
 .semi-modal-content {
   border: none !important;

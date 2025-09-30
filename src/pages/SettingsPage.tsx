@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Typography, Select, Card, Collapse, Button, RadioGroup, Radio, Input, Notification, Spin, Modal } from '@douyinfe/semi-ui';
+import { Typography, Select, Card, Collapse, Button, Switch, Input, Notification, Spin, Modal } from '@douyinfe/semi-ui';
 import { useAppContext } from '../utils/AppContext';
 import type { ThemeMode, DownloadThreads } from '../utils/theme';
 import { openUrl } from '../utils/tauriApiWrapper';
@@ -75,9 +75,8 @@ const SettingsPage: React.FC = () => {
     updateConfig({ downloadThreads: Number(value) as DownloadThreads });
   };
 
-  const handleWebSearchToggle = (e: any) => {
-    const isEnabled = e.target.value === 'on';
-    updateConfig({ enablePluginWebSearch: isEnabled });
+  const handleWebSearchToggle = (checked: boolean) => {
+    updateConfig({ enablePluginWebSearch: checked });
   };
 
   const handleUserNicknameChange = (value: string) => {
@@ -88,17 +87,14 @@ const SettingsPage: React.FC = () => {
     }
   };
 
-  const handlePersonalizedGreetingToggle = (e: any) => {
-    const isEnabled = e.target.value === 'on';
-    updateConfig({ enablePersonalizedGreeting: isEnabled });
+  const handlePersonalizedGreetingToggle = (checked: boolean) => {
+    updateConfig({ enablePersonalizedGreeting: checked });
   };
 
   // 修改：处理窗口效果切换
-  const handleWindowEffectsToggle = (e: any) => {
-    const mode = e.target.value as 'off' | 'partial' | 'full';
-    
+  const handleWindowEffectsToggle = (checked: boolean) => {
     // 如果系统不支持 Mica，显示警告并不执行操作
-    if (mode !== 'off' && !isMicaSupported) {
+    if (checked && !isMicaSupported) {
       Notification.warning({
         title: '提示',
         content: '当前系统版本不支持 Mica 效果，请升级到 Windows 11 22H2 及以上版本的系统',
@@ -107,7 +103,7 @@ const SettingsPage: React.FC = () => {
       return;
     }
     
-    updateConfig({ enableWindowEffects: mode });
+    updateConfig({ enableWindowEffects: checked ? 'full' : 'off' });
   };
 
   // 处理启动盘选择变化
@@ -264,15 +260,10 @@ const SettingsPage: React.FC = () => {
                 gap: 12
               }}>
                 启用个性化欢迎语：
-                <RadioGroup
-                  value={config.enablePersonalizedGreeting ? 'on' : 'off'}
+                <Switch
+                  checked={config.enablePersonalizedGreeting}
                   onChange={handlePersonalizedGreetingToggle}
-                  type="button"
-                  direction="horizontal"
-                >
-                  <Radio value="on">开</Radio>
-                  <Radio value="off">关</Radio>
-                </RadioGroup>
+                />
               </div>
 
               <div style={{ marginBottom: 16 }}>
@@ -317,7 +308,6 @@ const SettingsPage: React.FC = () => {
                     style={{ width: 90 }}
                   >
                     {allBootDrives.map(drive => {
-                     // const isDefault = localStorage.getItem('defaultBootDrive') === drive.letter;
                       return (
                         <Option key={drive.letter} value={drive.letter}>
                           {drive.letter}
@@ -339,22 +329,18 @@ const SettingsPage: React.FC = () => {
                 {isCheckingMicaSupport ? (
                   <Spin size="small" style={{ marginRight: 8 }} />
                 ) : (
-                  <RadioGroup
-                    value={config.enableWindowEffects || 'off'}
-                    onChange={handleWindowEffectsToggle}
-                    type="button"
-                    direction="horizontal"
-                    disabled={isWindowEffectsDisabled()}
-                  >
-                    <Radio value="full">开（整个窗口）</Radio>
-                    <Radio value="partial">开（局部）</Radio>
-                    <Radio value="off">关</Radio>
-                  </RadioGroup>
-                )}
-                {!isCheckingMicaSupport && isWindowEffectsDisabled() && (
-                  <Text type="tertiary" size="small">
-                    {getWindowEffectsDisabledReason()}
-                  </Text>
+                  <>
+                    <Switch
+                      checked={config.enableWindowEffects !== 'off'}
+                      onChange={handleWindowEffectsToggle}
+                      disabled={isWindowEffectsDisabled()}
+                    />
+                    {isWindowEffectsDisabled() && (
+                      <Text type="tertiary" size="small">
+                        {getWindowEffectsDisabledReason()}
+                      </Text>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -364,15 +350,10 @@ const SettingsPage: React.FC = () => {
                 gap: 12
               }}>
                 开启插件市场"搜索"按钮：
-                <RadioGroup
-                  value={config.enablePluginWebSearch ? 'on' : 'off'}
+                <Switch
+                  checked={config.enablePluginWebSearch}
                   onChange={handleWebSearchToggle}
-                  type="button"
-                  direction="horizontal"
-                >
-                  <Radio value="on">开</Radio>
-                  <Radio value="off">关</Radio>
-                </RadioGroup>
+                />
               </div>
             </div>
           </Collapse.Panel>
