@@ -7,7 +7,8 @@
   ![Tauri](https://img.shields.io/badge/Tauri-2.5.0-blue?logo=tauri)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-blue?logo=typescript)
   ![React](https://img.shields.io/badge/React-18.2-61dafb?logo=react)
-  
+  ![Made with Claude](https://img.shields.io/badge/Made%20with-Claude-5A67D8?logo=anthropic)
+
   <p>Cloud-PE 的全新桌面客户端，让 Cloud-PE 启动盘制作更简单</p>
   
   [English](README_en.md) | 简体中文
