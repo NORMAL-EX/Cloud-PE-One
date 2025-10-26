@@ -614,8 +614,8 @@ async fn multi_thread_download_impl(
                     } else {
                         0.0
                     };
-                    
-                    let display_speed = speed.min(135.0);
+
+                    let display_speed = speed;
                     let progress = (current_total as f64 / file_size as f64) * 100.0;
                     
                     // 根据事件类型发送不同的事件
@@ -746,10 +746,8 @@ async fn multi_thread_download_impl(
     drop(worker_tx);
     worker_task.await?;
 
-    if let Some(handle) = Some(progress_handle) {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        handle.abort();
-    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    progress_handle.abort();
 
     // 验证文件完整性
     {
@@ -858,9 +856,9 @@ async fn single_thread_download_attempt(
             } else {
                 0.0
             };
-            
-            let display_speed = speed.min(135.0);
-            
+
+            let display_speed = speed;
+
             if let Some(total) = total_size {
                 let progress = (downloaded as f64 / total as f64) * 100.0;
                 

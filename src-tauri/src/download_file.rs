@@ -41,7 +41,8 @@ async fn extract_filename(url: &Url) -> Result<String> {
     Ok(url
         .path_segments()
         .and_then(|segments| segments.last())
-        .unwrap_or("")
+        .filter(|s| !s.is_empty())
+        .unwrap_or("download")
         .to_string())
 }
 
@@ -114,9 +115,11 @@ pub(crate) async fn download_file(
         
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
-                    File::open(path)
-                        .unwrap()
-                        .write_all("100 0.00".to_string().as_bytes())
+                    // 下载完成，写入最终状态
+                    if write_progress {
+                        let mut file = File::create(path).unwrap();
+                        file.write_all(b"{\"progress\":\"100%\", \"speed\":\"0.00MB/s\"}").unwrap();
+                    }
                 }
             });
             download_future.await?;
