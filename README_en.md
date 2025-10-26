@@ -7,7 +7,8 @@
   ![Tauri](https://img.shields.io/badge/Tauri-2.5.0-blue?logo=tauri)
   ![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-blue?logo=typescript)
   ![React](https://img.shields.io/badge/React-18.2-61dafb?logo=react)
-  
+  ![Made with Claude](https://img.shields.io/badge/Made%20with-Claude-5A67D8?logo=anthropic)
+    
   <p>A brand new desktop client for Cloud-PE, making Cloud-PE bootable drive creation easier</p>
   
   English | [简体中文](README.md)
@@ -141,4 +142,5 @@ For questions or suggestions, please contact us via:
 
 <div align="center">
   <sub>Copyright © 2025-Present Cloud-PE Dev. All rights reserved.</sub>
+
 </div>
