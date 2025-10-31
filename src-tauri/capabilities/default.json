@@ -19,6 +19,12 @@
     "core:path:default",
     "core:webview:default",
     "core:webview:allow-webview-position",
-    "core:webview:allow-webview-size"
+    "core:webview:allow-webview-size",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm"
   ]
 }

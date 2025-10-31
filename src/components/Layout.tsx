@@ -251,7 +251,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
             src="" 
             className="cloud-pe-logo" 
             alt="Logo" 
-            style={{ width: 38, height: 38, marginRight: 8 }} 
+            style={{ width: 30, height: 30, marginRight: 8 }} 
             data-tauri-drag-region 
           />
           <Text 

@@ -5,15 +5,9 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 use zip::ZipArchive;
-use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle};
 use crate::download::{download_update_package, get_update_download_status, DownloadStatus};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct UpdateDownloadStatus {
-    progress: u64,
-    speed: String,
-}
 
 fn extract_archive(
     archive_path: &str,

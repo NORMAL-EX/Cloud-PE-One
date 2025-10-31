@@ -380,7 +380,7 @@ const SettingsPage: React.FC = () => {
                       <Text> Tauri, Rust, TypeScript, Vite, React, Semi Design</Text>
                     </div>
                     <div>
-                      <Text strong>Copyright © 2025-现在 Cloud-PE Dev.</Text>
+                      <Text strong>Copyright © 2025-Present Cloud-PE Dev.</Text>
                     </div>
                   </Paragraph>
                 </Card>
@@ -397,7 +397,7 @@ const SettingsPage: React.FC = () => {
                     {/* Cloud-PE官方网站 */}
                     <span
                       className="semi-typography semi-typography-normal semi-typography-link"
-                      style={{ cursor: 'pointer', textDecoration: 'underline' }} // 添加样式使其看起来像链接
+                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
                       onClick={() => handleOpenLink('https://cloud-pe.cn/' )}
                     >
                       <span className="semi-typography-link-text">Cloud-PE官方网站</span>

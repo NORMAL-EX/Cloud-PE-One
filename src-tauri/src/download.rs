@@ -39,6 +39,7 @@ pub struct WorkerInfo {
 
 // 进度更新
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ProgressUpdate {
     worker_id: usize,
     bytes_downloaded: u64,
@@ -543,7 +544,7 @@ async fn multi_thread_download_impl(
             .read(true)
             .open(file_path)?
     } else {
-        let mut file = File::create(file_path)?;
+        let file = File::create(file_path)?;
         file.set_len(file_size)?;
         file.sync_all()?; // 确保文件系统元数据更新
         file
@@ -751,7 +752,7 @@ async fn multi_thread_download_impl(
 
     // 验证文件完整性
     {
-        let mut file_guard = file.lock().await;
+        let file_guard = file.lock().await;
         file_guard.sync_all()?; // 确保所有数据都已写入磁盘
         let metadata = file_guard.metadata()?;
         if metadata.len() != file_size {
