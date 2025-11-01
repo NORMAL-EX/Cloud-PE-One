@@ -31,7 +31,6 @@ interface AppLayoutProps {
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate }) => {
   const {
-    bootDrive,
     bootDriveUpdateAvailable,
     setSearchKeyword, 
     searchKeyword, 

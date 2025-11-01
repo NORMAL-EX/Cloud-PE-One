@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button, Typography } from '@douyinfe/semi-ui';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface PlaceholderPageProps {
   title: string;

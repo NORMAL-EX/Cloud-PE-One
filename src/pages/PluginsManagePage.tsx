@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Button, Spin, Notification, Empty, Collapse } from '@douyinfe/semi-ui';
-import { IconAlertCircle ,IconInfoCircle } from '@douyinfe/semi-icons';
+import { Typography, Card, Button, Spin, Notification, Empty, Collapse, Tag } from '@douyinfe/semi-ui';
+import { IconAlertCircle, IconInfoCircle } from '@douyinfe/semi-icons';
 import { useAppContext } from '../utils/AppContext';
-import { getPluginFiles, enablePlugin, disablePlugin, Plugin } from '../api/pluginsApi';
+import { getPluginFiles, enablePlugin, disablePlugin, updatePlugin, generatePluginId, compareVersions, Plugin } from '../api/pluginsApi';
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
 
 const PluginsManagePage: React.FC = () => {
-  const { bootDrive, pluginListRefreshTrigger } = useAppContext();
+  const { bootDrive, pluginListRefreshTrigger, pluginCategories, isNetworkConnected, config, triggerPluginListRefresh } = useAppContext();
   const [enabledPlugins, setEnabledPlugins] = useState<Plugin[]>([]);
   const [disabledPlugins, setDisabledPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [processingPlugins, setProcessingPlugins] = useState<Record<string, boolean>>({});
+  const [updatablePlugins, setUpdatablePlugins] = useState<Set<string>>(new Set());
+  const [recentlyUpdatedPlugins, setRecentlyUpdatedPlugins] = useState<Set<string>>(new Set());
 
   // 加载插件文件列表
   const fetchPluginFiles = async () => {
@@ -30,6 +32,11 @@ const PluginsManagePage: React.FC = () => {
       const { enabled, disabled } = await getPluginFiles(bootDrive.letter);
       setEnabledPlugins(enabled);
       setDisabledPlugins(disabled);
+
+      // 如果联网且有插件市场数据，检查更新
+      if (isNetworkConnected && pluginCategories.length > 0 && enabled.length > 0) {
+        checkForUpdates(enabled);
+      }
     } catch (err) {
       console.error('加载插件文件失败:', err);
       setError('加载插件文件失败，请确保启动盘已正确插入。');
@@ -38,10 +45,69 @@ const PluginsManagePage: React.FC = () => {
     }
   };
 
+  // 检查插件更新
+  const checkForUpdates = (localPlugins: Plugin[]) => {
+    const updatable = new Set<string>();
+    
+    // 创建市场插件映射
+    const marketPluginsMap = new Map<string, Plugin>();
+    pluginCategories.forEach(category => {
+      category.list.forEach(plugin => {
+        const id = generatePluginId(plugin.name, plugin.author);
+        marketPluginsMap.set(id, plugin);
+      });
+    });
+
+    // 检查每个本地已启用插件
+    localPlugins.forEach(localPlugin => {
+      if (localPlugin.id) {
+        const marketPlugin = marketPluginsMap.get(localPlugin.id);
+        if (marketPlugin) {
+          const comparison = compareVersions(localPlugin.version, marketPlugin.version);
+          if (comparison < 0) {
+            updatable.add(localPlugin.id);
+          }
+        }
+      }
+    });
+
+    setUpdatablePlugins(updatable);
+  };
+
+  // 对插件进行排序：有更新的在最上面，刚更新的在中间，其他的在最下面
+  const sortPluginsByUpdate = (plugins: Plugin[]): Plugin[] => {
+    return [...plugins].sort((a, b) => {
+      const aHasUpdate = a.id && updatablePlugins.has(a.id);
+      const bHasUpdate = b.id && updatablePlugins.has(b.id);
+      const aRecentlyUpdated = a.id && recentlyUpdatedPlugins.has(a.id);
+      const bRecentlyUpdated = b.id && recentlyUpdatedPlugins.has(b.id);
+
+      // 有更新的排在最前面
+      if (aHasUpdate && !bHasUpdate) return -1;
+      if (!aHasUpdate && bHasUpdate) return 1;
+
+      // 刚更新的排在中间（有更新的下面，无更新的上面）
+      if (aRecentlyUpdated && !bRecentlyUpdated && !bHasUpdate) return -1;
+      if (!aRecentlyUpdated && bRecentlyUpdated && !aHasUpdate) return 1;
+
+      // 其他保持原顺序
+      return 0;
+    });
+  };
+
   // 初始加载和监听刷新触发器
   useEffect(() => {
     fetchPluginFiles();
-  }, [bootDrive, pluginListRefreshTrigger]); // 添加 pluginListRefreshTrigger 依赖
+  }, [bootDrive, pluginListRefreshTrigger]);
+
+  // 当网络状态或插件市场数据变化时，重新检查更新
+  useEffect(() => {
+    if (isNetworkConnected && pluginCategories.length > 0 && enabledPlugins.length > 0) {
+      checkForUpdates(enabledPlugins);
+    } else {
+      setUpdatablePlugins(new Set());
+    }
+  }, [isNetworkConnected, pluginCategories, enabledPlugins]);
 
   // 更新插件文件名后缀的辅助函数
   const updatePluginFileName = (plugin: Plugin, newExtension: string): Plugin => {
@@ -65,6 +131,8 @@ const PluginsManagePage: React.FC = () => {
       if (success) {
         // 创建更新后的插件对象（禁用状态的.CBK文件启用后变成.ce文件）
         const updatedPlugin = updatePluginFileName(plugin, 'ce');
+        // 启用后需要分配唯一ID
+        updatedPlugin.id = generatePluginId(updatedPlugin.name, updatedPlugin.author);
         
         // 更新状态
         setDisabledPlugins(prev => prev.filter(p => p.file !== plugin.file));
@@ -101,6 +169,8 @@ const PluginsManagePage: React.FC = () => {
       if (success) {
         // 创建更新后的插件对象（启用状态的.ce文件禁用后变成.CBK文件）
         const updatedPlugin = updatePluginFileName(plugin, 'CBK');
+        // 禁用后移除唯一ID
+        delete updatedPlugin.id;
         
         // 更新状态
         setEnabledPlugins(prev => prev.filter(p => p.file !== plugin.file));
@@ -124,9 +194,80 @@ const PluginsManagePage: React.FC = () => {
     }
   };
 
+  // 更新插件
+  const handleUpdatePlugin = async (plugin: Plugin) => {
+    if (!bootDrive || !plugin.id) return;
+
+    // 从插件市场找到对应的新版本插件
+    let marketPlugin: Plugin | null = null;
+    for (const category of pluginCategories) {
+      const found = category.list.find(p => generatePluginId(p.name, p.author) === plugin.id);
+      if (found) {
+        marketPlugin = found;
+        break;
+      }
+    }
+
+    if (!marketPlugin) {
+      Notification.error({
+        title: '错误',
+        content: '未找到插件市场中的对应版本',
+        duration: 3,
+      });
+      return;
+    }
+
+    try {
+      console.log('更新插件:', plugin.file, '到版本:', marketPlugin.version);
+      setProcessingPlugins(prev => ({ ...prev, [plugin.file]: true }));
+
+      const newFileName = `${marketPlugin.name}_${marketPlugin.version}_${marketPlugin.author}_${marketPlugin.describe}.ce`;
+
+      await updatePlugin(
+        marketPlugin.link,
+        plugin.file,
+        newFileName,
+        bootDrive.letter,
+        config.downloadThreads
+      );
+
+      // 标记为刚更新的插件
+      const newPluginId = generatePluginId(marketPlugin.name, marketPlugin.author);
+      setRecentlyUpdatedPlugins(prev => new Set(prev).add(newPluginId));
+      
+      // 5秒后移除"刚更新"标记
+      setTimeout(() => {
+        setRecentlyUpdatedPlugins(prev => {
+          const updated = new Set(prev);
+          updated.delete(newPluginId);
+          return updated;
+        });
+      }, 5000);
+
+      // 触发插件列表刷新
+      triggerPluginListRefresh();
+
+      Notification.success({
+        title: '更新成功',
+        content: `插件 ${plugin.name} 已更新到最新版本`,
+        duration: 3,
+      });
+    } catch (err) {
+      console.error('更新插件失败:', err);
+      Notification.error({
+        title: '错误',
+        content: `插件 ${plugin.name} 更新失败`,
+        duration: 3,
+      });
+    } finally {
+      setProcessingPlugins(prev => ({ ...prev, [plugin.file]: false }));
+    }
+  };
+
   // 渲染插件卡片
   const renderPluginCard = (plugin: Plugin, isEnabled: boolean) => {
     const isProcessing = processingPlugins[plugin.file];
+    const canUpdate = plugin.id && updatablePlugins.has(plugin.id);
     
     return (
       <Card
@@ -140,7 +281,10 @@ const PluginsManagePage: React.FC = () => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ flex: 1 }}>
-            <Title heading={5} style={{ marginBottom: 8 }}>{plugin.name}</Title>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <Title heading={5} style={{ marginBottom: 0, marginRight: 8 }}>{plugin.name}</Title>
+              {canUpdate && <Tag color="orange">有更新</Tag>}
+            </div>
             <Paragraph style={{ marginBottom: 8 }}>{plugin.describe}</Paragraph>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
               <Text type="tertiary">版本: {plugin.version}</Text>
@@ -154,24 +298,37 @@ const PluginsManagePage: React.FC = () => {
             flexDirection: 'column', 
             justifyContent: 'center',
             alignItems: 'center',
-            minWidth: 100
+            minWidth: 100,
+            gap: 8
           }}>
             {isProcessing ? (
-              <Spin size="small" />
-            ) : isEnabled ? (
-              <Button 
-                type="danger" 
-                onClick={() => handleDisablePlugin(plugin)}
-              >
-                禁用
-              </Button>
+              <Spin size="middle" />
             ) : (
-              <Button 
-                type="primary" 
-                onClick={() => handleEnablePlugin(plugin)}
-              >
-                启用
-              </Button>
+              <>
+                {canUpdate && (
+                  <Button 
+                    type="warning" 
+                    onClick={() => handleUpdatePlugin(plugin)}
+                  >
+                    更新
+                  </Button>
+                )}
+                {isEnabled ? (
+                  <Button 
+                    type="danger" 
+                    onClick={() => handleDisablePlugin(plugin)}
+                  >
+                    禁用
+                  </Button>
+                ) : (
+                  <Button 
+                    type="primary" 
+                    onClick={() => handleEnablePlugin(plugin)}
+                  >
+                    启用
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -199,6 +356,9 @@ const PluginsManagePage: React.FC = () => {
       </div>
     );
   }
+
+  // 对已启用插件进行排序
+  const sortedEnabledPlugins = sortPluginsByUpdate(enabledPlugins);
 
   return (
     <div style={{ 
@@ -231,15 +391,15 @@ const PluginsManagePage: React.FC = () => {
         <div style={{ 
           flex: 1, 
           overflow: 'auto',
-          paddingRight: 8 // 为滚动条预留空间
+          paddingRight: 8
         }}>
           <Collapse defaultActiveKey={['enabled', 'disabled']}>
             <Panel 
               header={`已启用插件 (${enabledPlugins.length})`} 
               itemKey="enabled"
             >
-              {enabledPlugins.length > 0 ? (
-                enabledPlugins.map(plugin => renderPluginCard(plugin, true))
+              {sortedEnabledPlugins.length > 0 ? (
+                sortedEnabledPlugins.map(plugin => renderPluginCard(plugin, true))
               ) : (
                 <Empty
                   image={<IconInfoCircle style={{ color: 'var(--semi-color-info)', fontSize: 50}}/>}

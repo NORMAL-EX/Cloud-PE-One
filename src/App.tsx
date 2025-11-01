@@ -17,8 +17,7 @@ import './App.css';
 const AppContent: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<string>('home');
-  const { 
-    bootDrive,
+  const {
     updateInfo, 
     updateDialogVisible, 
     setUpdateDialogVisible 

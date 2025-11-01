@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Nav, Card, Button, Spin, Notification, Empty, Tooltip } from '@douyinfe/semi-ui';
-import { IconDownload, IconAlertCircle, IconGlobe, IconArrowLeft } from '@douyinfe/semi-icons';
+import { Typography, Nav, Card, Button, Spin, Notification, Empty, Tooltip, Tag } from '@douyinfe/semi-ui';
+import { IconDownload, IconAlertCircle, IconGlobe, IconArrowLeft, IconCheckCircleStroked } from '@douyinfe/semi-icons';
 import { IconEmpty } from '@douyinfe/semi-icons-lab';
-import { downloadPlugin, Plugin } from '../api/pluginsApi';
+import { downloadPlugin, updatePlugin, getPluginFiles, generatePluginId, compareVersions, Plugin } from '../api/pluginsApi';
 import { useAppContext } from '../utils/AppContext';
 import { cacheService } from '../utils/cacheService';
 
 const { Title, Text, Paragraph } = Typography;
+
+interface PluginStatus {
+  installed: boolean;
+  canUpdate: boolean;
+  localVersion?: string;
+  localFileName?: string;
+}
 
 const PluginsMarketPage: React.FC = () => {
   const { 
@@ -17,11 +24,10 @@ const PluginsMarketPage: React.FC = () => {
     searchResults,
     searchKeyword,
     config,
-    // 新增：使用全局下载状态
     downloadingPlugins,
     setPluginDownloading,
-    // 新增：触发插件列表刷新
     triggerPluginListRefresh,
+    isNetworkConnected,
   } = useAppContext();
   
   const [currentCategory, setCurrentCategory] = useState<string>('');
@@ -29,12 +35,12 @@ const PluginsMarketPage: React.FC = () => {
   const [hasProcessedSearch, setHasProcessedSearch] = useState<boolean>(false);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const [isPageLoaded, setIsPageLoaded] = useState<boolean>(false);
-  
-  // 新增状态：控制Web搜索界面
   const [webSearchPlugin, setWebSearchPlugin] = useState<Plugin | null>(null);
   const [showWebSearch, setShowWebSearch] = useState<boolean>(false);
+  const [localPluginsMap, setLocalPluginsMap] = useState<Map<string, Plugin>>(new Map());
+  const [processingPlugins, setProcessingPlugins] = useState<Record<string, boolean>>({});
+  const [recentlyUpdatedPlugins, setRecentlyUpdatedPlugins] = useState<Set<string>>(new Set());
 
-  // 获取是否有插件
   const hasPlugins = cacheService.hasPlugins();
 
   // 生成插件的唯一标识符
@@ -55,10 +61,81 @@ const PluginsMarketPage: React.FC = () => {
     });
   };
 
+  // 对插件进行排序：有更新的在最上面，刚更新的在中间，其他的在最下面
+  const sortPluginsByUpdate = (plugins: Plugin[]): Plugin[] => {
+    return [...plugins].sort((a, b) => {
+      const aStatus = getPluginStatus(a);
+      const bStatus = getPluginStatus(b);
+      const aId = generatePluginId(a.name, a.author);
+      const bId = generatePluginId(b.name, b.author);
+      const aRecentlyUpdated = recentlyUpdatedPlugins.has(aId);
+      const bRecentlyUpdated = recentlyUpdatedPlugins.has(bId);
+
+      // 有更新的排在最前面
+      if (aStatus.canUpdate && !bStatus.canUpdate) return -1;
+      if (!aStatus.canUpdate && bStatus.canUpdate) return 1;
+
+      // 刚更新的排在中间（有更新的下面，其他的上面）
+      if (aRecentlyUpdated && !bRecentlyUpdated && !bStatus.canUpdate) return -1;
+      if (!aRecentlyUpdated && bRecentlyUpdated && !aStatus.canUpdate) return 1;
+
+      // 其他保持原顺序
+      return 0;
+    });
+  };
+
+  // 加载本地已启用插件列表
+  const loadLocalPlugins = async () => {
+    if (!bootDrive || !isNetworkConnected) {
+      setLocalPluginsMap(new Map());
+      return;
+    }
+
+    try {
+      const { enabled } = await getPluginFiles(bootDrive.letter);
+      const pluginsMap = new Map<string, Plugin>();
+      
+      enabled.forEach(plugin => {
+        if (plugin.id) {
+          pluginsMap.set(plugin.id, plugin);
+        }
+      });
+
+      setLocalPluginsMap(pluginsMap);
+    } catch (err) {
+      console.error('加载本地插件失败:', err);
+      setLocalPluginsMap(new Map());
+    }
+  };
+
+  // 获取插件状态
+  const getPluginStatus = (plugin: Plugin): PluginStatus => {
+    const pluginId = generatePluginId(plugin.name, plugin.author);
+    const localPlugin = localPluginsMap.get(pluginId);
+
+    if (!localPlugin) {
+      return { installed: false, canUpdate: false };
+    }
+
+    const comparison = compareVersions(localPlugin.version, plugin.version);
+    
+    return {
+      installed: true,
+      canUpdate: comparison < 0,
+      localVersion: localPlugin.version,
+      localFileName: localPlugin.file,
+    };
+  };
+
+  // 初始化时和网络状态变化时加载本地插件
+  useEffect(() => {
+    loadLocalPlugins();
+  }, [bootDrive, isNetworkConnected]);
+
   // 当插件分类加载完成后，设置默认分类
   useEffect(() => {
     if (pluginCategories.length > 0 && !currentCategory && !isInitialized) {
-      if (searchResults && searchKeyword.trim()) {  // 添加搜索关键词检查
+      if (searchResults && searchKeyword.trim()) {
         setCurrentCategory('搜索');
         setHasProcessedSearch(true);
       } else {
@@ -70,14 +147,12 @@ const PluginsMarketPage: React.FC = () => {
 
   // 当搜索结果变化时，处理分类切换
   useEffect(() => {
-    // 只有在有搜索关键词时才切换到搜索分类
     if (searchResults && searchKeyword.trim() && !hasProcessedSearch) {
       setCurrentCategory('搜索');
       setHasProcessedSearch(true);
       setUserSelectedCategory(false);
     } 
     else if (!searchKeyword.trim() && currentCategory === '搜索' && pluginCategories.length > 0) {
-      // 搜索关键词为空时，切换回默认分类
       setCurrentCategory(pluginCategories[0].class);
       setHasProcessedSearch(false);
       setUserSelectedCategory(false);
@@ -143,8 +218,9 @@ const PluginsMarketPage: React.FC = () => {
         duration: 3,
       });
       
-      // 触发插件列表刷新
+      // 触发插件列表刷新并重新加载本地插件
       triggerPluginListRefresh();
+      await loadLocalPlugins();
     } catch (err) {
       console.error('下载插件失败:', err);
       Notification.error({
@@ -157,11 +233,80 @@ const PluginsMarketPage: React.FC = () => {
     }
   };
 
+  // 处理插件更新
+  const handleUpdatePlugin = async (plugin: Plugin) => {
+    if (!bootDrive) {
+      Notification.error({
+        title: '尚未准备就绪！',
+        content: '目前您还尚未安装或制作Cloud-PE启动盘，因此该功能暂不可用！',
+        duration: 3
+      });
+      return;
+    }
+
+    const status = getPluginStatus(plugin);
+    if (!status.localFileName) {
+      Notification.error({
+        title: '错误',
+        content: '无法找到本地插件文件',
+        duration: 3,
+      });
+      return;
+    }
+
+    const pluginId = getPluginUniqueId(plugin);
+    
+    try {
+      setProcessingPlugins(prev => ({ ...prev, [pluginId]: true }));
+
+      const newFileName = `${plugin.name}_${plugin.version}_${plugin.author}_${plugin.describe}.ce`;
+
+      await updatePlugin(
+        plugin.link,
+        status.localFileName,
+        newFileName,
+        bootDrive.letter,
+        config.downloadThreads
+      );
+
+      // 标记为刚更新的插件
+      const updatedPluginId = generatePluginId(plugin.name, plugin.author);
+      setRecentlyUpdatedPlugins(prev => new Set(prev).add(updatedPluginId));
+      
+      // 5秒后移除"刚更新"标记
+      setTimeout(() => {
+        setRecentlyUpdatedPlugins(prev => {
+          const updated = new Set(prev);
+          updated.delete(updatedPluginId);
+          return updated;
+        });
+      }, 5000);
+
+      Notification.success({
+        title: '更新成功',
+        content: `插件 ${plugin.name} 已更新到最新版本`,
+        duration: 3,
+      });
+
+      // 触发插件列表刷新并重新加载本地插件
+      triggerPluginListRefresh();
+      await loadLocalPlugins();
+    } catch (err) {
+      console.error('更新插件失败:', err);
+      Notification.error({
+        title: '错误',
+        content: `插件 ${plugin.name} 更新失败`,
+        duration: 3,
+      });
+    } finally {
+      setProcessingPlugins(prev => ({ ...prev, [pluginId]: false }));
+    }
+  };
+
   // 处理Web搜索
   const handleWebSearch = (plugin: Plugin) => {
     setWebSearchPlugin(plugin);
     setShowWebSearch(true);
-    // 隐藏body滚动条
     document.body.style.overflow = 'hidden';
   };
 
@@ -169,32 +314,28 @@ const PluginsMarketPage: React.FC = () => {
   const handleBackFromWebSearch = () => {
     setShowWebSearch(false);
     setWebSearchPlugin(null);
-    // 恢复body滚动条
     document.body.style.overflow = '';
   };
 
-// 获取当前分类的插件列表（已去重）
-const getCurrentCategoryPlugins = (): Plugin[] => {
-  let plugins: Plugin[] = [];
-  
-  // 如果是搜索分类
-  if (currentCategory === '搜索') {
-    // 只有在有搜索关键词时才返回搜索结果
-    if (searchKeyword.trim() && searchResults) {
-      plugins = searchResults.list;
-    } else if (pluginCategories.length > 0) {
-      // 如果搜索关键词为空，返回第一个分类的插件作为过渡
-      const firstCategory = pluginCategories[0];
-      plugins = firstCategory ? firstCategory.list : [];
+  // 获取当前分类的插件列表（已去重并排序）
+  const getCurrentCategoryPlugins = (): Plugin[] => {
+    let plugins: Plugin[] = [];
+    
+    if (currentCategory === '搜索') {
+      if (searchKeyword.trim() && searchResults) {
+        plugins = searchResults.list;
+      } else if (pluginCategories.length > 0) {
+        const firstCategory = pluginCategories[0];
+        plugins = firstCategory ? firstCategory.list : [];
+      }
+    } else {
+      const category = pluginCategories.find(cat => cat.class === currentCategory);
+      plugins = category ? category.list : [];
     }
-  } else {
-    // 非搜索分类的正常逻辑
-    const category = pluginCategories.find(cat => cat.class === currentCategory);
-    plugins = category ? category.list : [];
-  }
-  
-  return deduplicatePlugins(plugins);
-};
+    
+    const deduped = deduplicatePlugins(plugins);
+    return sortPluginsByUpdate(deduped);
+  };
 
   // 获取导航项
   const getNavItems = () => {
@@ -203,7 +344,6 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
       text: category.class
     }));
     
-    // 只有在有搜索关键词和搜索结果时才添加搜索分类
     if (searchResults && searchKeyword.trim()) {
       items.unshift({
         itemKey: '搜索',
@@ -223,6 +363,8 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
   const renderPluginCard = (plugin: Plugin, index: number) => {
     const pluginId = getPluginUniqueId(plugin);
     const isDownloading = downloadingPlugins[pluginId];
+    const isProcessing = processingPlugins[pluginId];
+    const status = getPluginStatus(plugin);
     
     return (
       <Card
@@ -236,7 +378,10 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ flex: 1 }}>
-            <Title heading={5} style={{ marginBottom: 8 }}>{plugin.name}</Title>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <Title heading={5} style={{ marginBottom: 0, marginRight: 8 }}>{plugin.name}</Title>
+              {status.installed && status.canUpdate && <Tag color="orange">有更新</Tag>}
+            </div>
             <Paragraph style={{ marginBottom: 8 }}>{plugin.describe}</Paragraph>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
               <Text type="tertiary">版本: {plugin.version}</Text>
@@ -253,7 +398,6 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
             gap: 8
           }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              {/* Web搜索按钮 */}
               {config.enablePluginWebSearch && (
                 <Tooltip content="在 Bing 上搜索该软件">
                   <Button 
@@ -265,13 +409,27 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
                 </Tooltip>
               )}
               
-              {/* 下载按钮 */}
-              {isDownloading ? (
+              {isDownloading || isProcessing ? (
                 <Button 
                   type="primary" 
                   loading={true}
                 >
-                  下载中
+                  {isProcessing ? '更新中' : '下载中'}
+                </Button>
+              ) : status.installed && !status.canUpdate ? (
+                <Button 
+                  type="tertiary"
+                  icon={<IconCheckCircleStroked />}
+                  disabled
+                >
+                  已安装
+                </Button>
+              ) : status.installed && status.canUpdate ? (
+                <Button 
+                  type="warning"
+                  onClick={() => handleUpdatePlugin(plugin)}
+                >
+                  更新
                 </Button>
               ) : (
                 <Button 
@@ -305,7 +463,6 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
         backgroundColor: 'var(--semi-color-bg-0)',
         overflow: 'hidden'
       }}>
-        {/* 头部信息栏 */}
         <div className="plugins-info" style={{
           padding: 16,
           borderBottom: '1px solid var(--semi-color-border)',
@@ -332,7 +489,6 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
           </div>
         </div>
         
-        {/* 浏览器框架 */}
         <div style={{ flex: 1, position: 'relative' }}>
           <iframe
             src={bingUrl}
@@ -350,11 +506,9 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
 
   const shouldShowCategories = !isLoadingPlugins && !pluginsError && pluginCategories.length > 0 && hasPlugins;
   
-  // 判断是否应该隐藏滚动条
   const shouldHideScrollbar = pluginsError || !hasPlugins ||
     (isPageLoaded && !isLoadingPlugins && !pluginsError && getCurrentCategoryPlugins().length === 0);
 
-  // 如果显示Web搜索界面，渲染Web搜索视图
   if (showWebSearch) {
     return (
       <div style={{ 
@@ -367,30 +521,28 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
     );
   }
 
-  // 如果没有插件，显示加载失败状态
   if (!isLoadingPlugins && !pluginsError && !hasPlugins) {
     return (
-          <div style={{ 
-            padding: 24, 
-            height: '84vh', 
-            display: 'flex', 
-            flexDirection: 'column' 
-          }}>
-            <Title heading={3} style={{ marginBottom: 24 }}>插件市场</Title>
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <Empty
-                image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
-                title="出现错误"
-                description="无法获取到插件列表，插件市场加载失败"
-              />
-            </div>
-          </div>
+      <div style={{ 
+        padding: 24, 
+        height: '84vh', 
+        display: 'flex', 
+        flexDirection: 'column' 
+      }}>
+        <Title heading={3} style={{ marginBottom: 24 }}>插件市场</Title>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <Empty
+            image={<IconAlertCircle style={{ color: 'var(--semi-color-danger)', fontSize: 50}} />}
+            title="出现错误"
+            description="无法获取到插件列表，插件市场加载失败"
+          />
+        </div>
+      </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 48px)' }}>
-      {/* 左侧分类菜单 */}
       {shouldShowCategories && (
         <div style={{ 
           width: 120,
@@ -418,7 +570,6 @@ const getCurrentCategoryPlugins = (): Plugin[] => {
         </div>
       )}
       
-      {/* 右侧插件列表 */}
       <div className="plugins-market-list" style={{
         flex: 1, 
         padding: 16,
