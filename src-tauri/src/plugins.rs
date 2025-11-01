@@ -18,6 +18,12 @@ pub struct PluginInfo {
     author: String,
     describe: String,
     file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+fn generate_plugin_id(name: &str, author: &str) -> String {
+    format!("{}|{}", name, author)
 }
 
 #[command]
@@ -51,6 +57,50 @@ pub async fn download_plugin(
     download_plugin_file(url, file_path, thread_count)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_plugin(
+    url: String,
+    path: String,
+    old_file_name: String,
+    new_file_name: String,
+    threads: Option<u32>,
+) -> Result<String, String> {
+    let thread_count = threads.unwrap_or(8) as u16;
+    let url_parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+
+    let download_dir = Path::new(&path);
+    if !download_dir.exists() {
+        fs::create_dir_all(download_dir).map_err(|e| e.to_string())?;
+    }
+
+    let client = Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let (_, _, _, _) = get_file_info(&client, &url_parsed)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let temp_filename = format!("{}.tmp", new_file_name);
+    let temp_file_path = download_dir.join(&temp_filename);
+    let final_file_path = download_dir.join(&new_file_name);
+    let old_file_path = download_dir.join(&old_file_name);
+
+    download_plugin_file(url, temp_file_path.clone(), thread_count)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if old_file_path.exists() {
+        fs::remove_file(&old_file_path).map_err(|e| e.to_string())?;
+    }
+
+    fs::rename(&temp_file_path, &final_file_path).map_err(|e| e.to_string())?;
+
+    Ok(final_file_path.to_string_lossy().to_string())
 }
 
 #[command]
@@ -94,6 +144,12 @@ pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<Plug
                         let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
                         let size = format!("{:.2} MB", metadata.len() as f64 / 1024.0 / 1024.0);
 
+                        let id = if extension_str == "ce" {
+                            Some(generate_plugin_id(&name, &author))
+                        } else {
+                            None
+                        };
+
                         let plugin_info = PluginInfo {
                             name,
                             size,
@@ -101,6 +157,7 @@ pub fn get_plugin_files(drive_letter: String) -> Result<HashMap<String, Vec<Plug
                             author,
                             describe,
                             file: file_name,
+                            id,
                         };
 
                         if extension_str == "ce" {

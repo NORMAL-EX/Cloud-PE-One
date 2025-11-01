@@ -8,7 +8,7 @@ mod plugins;
 mod updater;
 mod usb_api;
 
-use plugins::{disable_plugin, download_plugin, enable_plugin, get_plugin_files};
+use plugins::{disable_plugin, download_plugin, enable_plugin, get_plugin_files, update_plugin};
 use tauri::Manager;
 use updater::{download_update, get_app_download_status, install_update};
 use std::process::Command;
@@ -24,6 +24,7 @@ fn main() {
             get_app_download_status,
             install_update,
             download_plugin,
+            update_plugin,
             get_plugin_files,
             enable_plugin,
             disable_plugin,
@@ -67,7 +68,6 @@ fn main() {
             }
     
             window.show().unwrap();
-            set_config(app);
 
             #[cfg(debug_assertions)]
             {
@@ -423,36 +423,7 @@ async fn download_file_to_path(
     }
 }
 
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::{env, path::PathBuf};
-use tauri_plugin_store::StoreExt;
-
-#[derive(Deserialize, Serialize)]
-struct Config {
-    thread: u32,
-    path: String,
-}
-
-pub fn set_config(app: &tauri::App) {
-    let exe_path = env::current_exe().expect("Failed to get current executable path");
-    let dir = PathBuf::from(exe_path.parent().unwrap());
-    let dir_string = dir.display().to_string();
-    let config = Config {
-        thread: 4,
-        path: format!("{}\\temp", dir_string),
-    };
-    
-    let store = app.store("store.json").expect("Failed to open store");
-    match store.get("thread") {
-        None => {
-            store.set("thread".to_string(), json!({ "thread": 4 }));
-            store.set("path".to_string(), json!({ "path": config.path }));
-            store.save().expect("Failed to save store");
-        }
-        Some(_) => {}
-    }
-}
+use std::{env};
 
 #[tauri::command]
 fn open_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {

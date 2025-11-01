@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-pe-one"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",

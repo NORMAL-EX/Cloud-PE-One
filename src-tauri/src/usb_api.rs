@@ -31,6 +31,7 @@ use winapi::um::winnt::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, HANDLE,
 };
 use winapi::um::winreg::{RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE};
+use winapi::um::winbase::SetVolumeLabelW;
 
 const BusTypeUsb: DWORD = 0x07;
 
@@ -947,6 +948,19 @@ pub async fn deploy_to_usb(drive_letter: String) -> Result<ApiResponse, String> 
     match fs::write(&ico_path, EMBEDDED_ICON) {
         Ok(_) => println!("图标文件创建成功"),
         Err(e) => println!("图标文件创建失败，跳过: {}", e),
+    }
+
+    println!("设置驱动器卷标为 Cloud-PE...");
+    unsafe {
+        let wide_drive_path = to_wide_string(&drive_path);
+        let wide_label = to_wide_string("Cloud-PE");
+        
+        let result = SetVolumeLabelW(wide_drive_path.as_ptr(), wide_label.as_ptr());
+        if result == 0 {
+            println!("设置卷标失败，但部署继续");
+        } else {
+            println!("卷标设置成功");
+        }
     }
 
     println!("开始下载默认插件...");
