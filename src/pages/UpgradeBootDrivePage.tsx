@@ -22,7 +22,7 @@ interface UpgradeBootDrivePageProps {
 }
 
 const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate }) => {
-  const { config, setIsUpgradingBootDrive, reloadBootDrive, bootDrive } = useAppContext();
+  const { config, setIsUpgradingBootDrive, setBootDriveUpdateAvailable, setBootDriveVersion, setBootDrive, bootDrive } = useAppContext();
   const [isDeploying, setIsDeploying] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo>({
     progress: "0%",
@@ -30,8 +30,7 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
     downloading: false,
   });
   const [isCompleted, setIsCompleted] = useState(false);
-  const downloadStartedRef = useRef<boolean>(false);
-  const monitoringRef = useRef<boolean>(false);
+  const monitorIntervalRef = useRef<number | null>(null);
 
   // 使用官方 Tauri API 调用函数
   const safeTauriInvoke = async (command: string, args?: any): Promise<any> => {
@@ -46,65 +45,60 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
     }
   };
 
-  // 监听下载进度
-  useEffect(() => {
-    let intervalId: number | null = null;
-
-    const startMonitoring = () => {
-      if (monitoringRef.current) return;
-      
-      console.log('开始监听下载进度...');
-      monitoringRef.current = true;
-      intervalId = window.setInterval(async () => {
-        try {
-          const info = await getDownloadInfo();
-          console.log('下载信息:', info);
-          setDownloadInfo(info);
-          
-          if (!info.downloading && isDeploying && downloadStartedRef.current) {
-            console.log('下载完成，停止监听');
-            downloadStartedRef.current = false;
-            monitoringRef.current = false;
-            
-            if (intervalId) {
-              clearInterval(intervalId);
-              intervalId = null;
-            }
-            
-            await performDeploy();
-          }
-        } catch (error) {
-          console.error("获取下载信息失败:", error);
-        }
-      }, 1000);
-    };
-
-    if (isDeploying && downloadStartedRef.current) {
-      startMonitoring();
-    } else if (!isDeploying && monitoringRef.current) {
-      console.log('下载状态变为false，停止监听');
-      monitoringRef.current = false;
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
+  // 启动下载进度监听
+  const startProgressMonitoring = () => {
+    console.log('启动下载进度监听...');
+    
+    // 清除可能存在的旧监听
+    if (monitorIntervalRef.current) {
+      clearInterval(monitorIntervalRef.current);
+      monitorIntervalRef.current = null;
     }
+    
+    // 启动新的监听，减少间隔到500ms提高响应速度
+    monitorIntervalRef.current = window.setInterval(async () => {
+      try {
+        const info = await getDownloadInfo();
+        console.log('下载信息:', info);
+        
+        // 防止进度倒退显示：只有新进度大于等于当前进度时才更新
+        setDownloadInfo(prevInfo => {
+          const prevPercent = parseFloat(prevInfo.progress.match(/(\d+(?:\.\d+)?)/)?.[1] || '0');
+          const newPercent = parseFloat(info.progress.match(/(\d+(?:\.\d+)?)/)?.[1] || '0');
+          
+          // 如果新进度小于当前进度，保持当前进度不变
+          if (newPercent < prevPercent && info.downloading) {
+            return prevInfo;
+          }
+          
+          return info;
+        });
+      } catch (error) {
+        console.error("获取下载信息失败:", error);
+      }
+    }, 500); // 从1000ms改为500ms，提高响应速度
+  };
 
+  // 停止下载进度监听
+  const stopProgressMonitoring = () => {
+    console.log('停止下载进度监听');
+    if (monitorIntervalRef.current) {
+      clearInterval(monitorIntervalRef.current);
+      monitorIntervalRef.current = null;
+    }
+  };
+
+  // 组件卸载时清理
+  useEffect(() => {
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-      if (!isDeploying) {
-        monitoringRef.current = false;
-      }
+      stopProgressMonitoring();
     };
-  }, [isDeploying, downloadStartedRef.current]);
+  }, []);
 
   // 获取进度百分比数值
   const getProgressPercent = (): number => {
-    const match = downloadInfo.progress.match(/(\d+)%/);
-    return match ? parseInt(match[1], 10) : 0;
+    const match = downloadInfo.progress.match(/(\d+(?:\.\d+)?)%/);
+    return match ? parseFloat(match[1]) : 0;
   };
 
   const handleStartUpgrade = async () => {
@@ -155,27 +149,41 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
       });
 
       console.log('开始下载文件...');
+      Notification.info({
+        title: '开始升级Cloud-PE',
+        content: `正在下载Cloud-PE镜像到 ${bootDrive.letter} 驱动器`,
+        duration: 3
+      });
+      
+      // 启动进度监听
+      startProgressMonitoring();
+      
       try {
-        Notification.info({
-          title: '开始升级Cloud-PE',
-          content: `正在下载Cloud-PE镜像到 ${bootDrive.letter} 驱动器`,
-          duration: 3
-        });
-        
-        downloadStartedRef.current = true;
-        
+        // 下载文件
         await downloadFileToPath(
           downloadLink,
           downloadPath,
           config.downloadThreads
         );
         
+        console.log('下载完成');
+        
+        // 停止监听
+        stopProgressMonitoring();
+        
+        // 获取最终下载状态
+        const finalInfo = await getDownloadInfo();
+        console.log('最终下载信息:', finalInfo);
+        setDownloadInfo(finalInfo);
+        
+        // 执行部署
+        await performDeploy();
+        
       } catch (downloadError) {
         console.error('下载文件失败:', downloadError);
+        stopProgressMonitoring();
         setIsDeploying(false);
         setIsUpgradingBootDrive(false);
-        downloadStartedRef.current = false;
-        monitoringRef.current = false;
         setDownloadInfo({
           progress: "0%",
           speed: "0.00MB/s",
@@ -191,10 +199,9 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
 
     } catch (error) {
       console.error('升级失败 - 未预期的错误:', error);
+      stopProgressMonitoring();
       setIsDeploying(false);
       setIsUpgradingBootDrive(false);
-      downloadStartedRef.current = false;
-      monitoringRef.current = false;
       setDownloadInfo({
         progress: "0%",
         speed: "0.00MB/s",
@@ -211,9 +218,35 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
 
   const performDeploy = async () => {
     try {
+      console.log('开始部署到USB...');
       const result = await safeTauriInvoke('deploy_to_usb', {
         driveLetter: bootDrive?.letter
       });
+      
+      console.log('部署完成，返回结果:', result);
+      
+      // 从返回结果中获取新版本号
+      const newVersion = result?.data?.pe?.version;
+      console.log('部署后的新版本:', newVersion);
+      
+      // 升级完成后，直接设置不需要更新（因为已经升级到最新版本）
+      console.log('升级完成，设置不需要更新');
+      setBootDriveUpdateAvailable(false);
+      
+      // 更新显示的版本号
+      if (newVersion && bootDrive?.letter) {
+        console.log('更新版本号显示:', newVersion);
+        
+        // 1. 更新缓存
+        cacheService.updateBootDriveVersion(bootDrive.letter, newVersion);
+        
+        // 2. 更新状态
+        setBootDriveVersion(newVersion);
+        setBootDrive({
+          ...bootDrive,
+          version: newVersion
+        });
+      }
       
       setIsDeploying(false);
       setIsCompleted(true);
@@ -238,19 +271,8 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
   };
 
   const handleNavigateHome = () => {
-    try {
-      if (bootDrive?.letter) {
-        reloadBootDrive(bootDrive.letter);
-      }
-      onNavigate('home');
-    } catch (error) {
-      console.error('导航到主页失败:', error);
-      Notification.error({
-        title: '导航失败',
-        content: '无法返回主页，请重试',
-        duration: 3
-      });
-    }
+    console.log('返回首页');
+    onNavigate('home');
   };
 
   // 完成页面
@@ -337,7 +359,7 @@ const UpgradeBootDrivePage: React.FC<UpgradeBootDrivePageProps> = ({ onNavigate 
       marginTop: 100
     }}>
       <IconPlay style={{ color: 'var(--semi-color-success)', fontSize: 66, marginBottom: 24 }}/>
-      <Title heading={2} style={{ marginBottom: 16, textAlign: 'center' }}>升级启动盘</Title>
+      <Title heading={2} style={{ marginBottom: 32, textAlign: 'center' }}>升级启动盘</Title>
       
       {!bootDrive?.letter && (
         <Text type="warning" style={{ marginBottom: 32, textAlign: 'center' }}>

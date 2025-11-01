@@ -31,6 +31,7 @@ interface AppLayoutProps {
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate }) => {
   const {
+    bootDrive,
     bootDriveUpdateAvailable,
     setSearchKeyword, 
     searchKeyword, 
@@ -82,7 +83,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentPage, onNavigate
     return networkRequiredPages.includes(page);
   };
 
-  const handleNavSelect = (data: any) => {
+  const handleNavSelect = async (data: any) => {
     const itemKey = String(data.itemKey);
     
     if (isGeneratingIso) {

@@ -5,7 +5,7 @@ import {
   Progress, 
   Notification 
 } from '@douyinfe/semi-ui';
-import { IconDownload, IconDisc, IconGlobeStroke} from '@douyinfe/semi-icons';
+import { IconDisc, IconGlobeStroke} from '@douyinfe/semi-icons';
 import { cacheService } from '../utils/cacheService';
 import { saveFileDialog } from '../utils/tauriApiWrapper';
 import { downloadFileToPath, getDownloadInfo, DownloadInfo } from '../api/downloadApi';
@@ -291,7 +291,6 @@ const CreateIsoPage: React.FC = () => {
       <Title heading={2} style={{ marginBottom: 32, textAlign: 'center' }}>生成ISO镜像</Title>
       <Button 
         type="primary"
-        icon={buttonLoading ? undefined : <IconDownload />}
         loading={buttonLoading}
         onClick={handleStartGenerate}
       >

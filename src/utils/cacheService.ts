@@ -497,6 +497,27 @@ async reloadBootDriveInfo(driveLetter?: string, skipCheck: boolean = false): Pro
     return this.cache.allBootDrives ?? [];
   }
   
+  // 新增：直接更新启动盘版本（用于升级后立即更新，无需重新读取文件）
+  updateBootDriveVersion(driveLetter: string, newVersion: string): void {
+    console.log('cacheService: 直接更新启动盘版本:', driveLetter, '->', newVersion);
+    
+    // 更新当前启动盘版本
+    if (this.cache.bootDrive && this.cache.bootDrive.letter === driveLetter) {
+      this.cache.bootDrive.version = newVersion;
+      this.cache.bootDriveVersion = newVersion;
+    }
+    
+    // 更新allBootDrives列表中的版本
+    if (this.cache.allBootDrives) {
+      const driveIndex = this.cache.allBootDrives.findIndex(d => d.letter === driveLetter);
+      if (driveIndex >= 0) {
+        this.cache.allBootDrives[driveIndex].version = newVersion;
+      }
+    }
+    
+    console.log('cacheService: 版本更新完成');
+  }
+  
   // 清除所有缓存
   clearCache(): void {
     // 清除统一API服务的缓存

@@ -18,7 +18,7 @@ const AppContent: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<string>('home');
   const { 
-    // bootDrive,  // 已删除未使用的变量
+    bootDrive,
     updateInfo, 
     updateDialogVisible, 
     setUpdateDialogVisible 
@@ -42,7 +42,7 @@ const AppContent: React.FC = () => {
     setIsLoading(false);
   };
 
-  const handleNavigate = (page: string) => {
+  const handleNavigate = async (page: string) => {
     setCurrentPage(page);
   };
 

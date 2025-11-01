@@ -32,6 +32,7 @@ interface AppContextType {
   bootDriveVersion: string | null;
   isLoadingBootDriveVersion: boolean;
   bootDriveUpdateAvailable: boolean;
+  setBootDriveUpdateAvailable: (available: boolean) => void;
   bootDriveUpdateCanSkip: boolean;
   isCheckingBootDriveUpdate: boolean;
   isNetworkConnected: boolean;
@@ -387,6 +388,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 // 重新加载指定启动盘和版本信息
 const reloadBootDrive = async (driveLetter: string, skipCheck: boolean = false) => {
   try {
+    console.log('reloadBootDrive: 开始重新加载启动盘信息, driveLetter:', driveLetter, 'skipCheck:', skipCheck);
+    
     // 调用缓存服务重新加载启动盘信息
     await cacheService.reloadBootDriveInfo(driveLetter, skipCheck);
     
@@ -396,6 +399,12 @@ const reloadBootDrive = async (driveLetter: string, skipCheck: boolean = false) 
     const updatedBootDriveUpdateInfo = cacheService.getBootDriveUpdateInfo();
     const updatedAllBootDrives = cacheService.getAllBootDrives();
     
+    console.log('reloadBootDrive: 获取到的数据:', {
+      bootDrive: updatedBootDrive,
+      version: updatedBootDriveVersion,
+      updateInfo: updatedBootDriveUpdateInfo
+    });
+    
     // 更新状态
     setBootDrive(updatedBootDrive);
     setBootDriveVersion(updatedBootDriveVersion);
@@ -404,6 +413,11 @@ const reloadBootDrive = async (driveLetter: string, skipCheck: boolean = false) 
     // 检查启动盘升级
     if (updatedBootDriveVersion && updatedBootDriveUpdateInfo) {
       const needsUpdate = compareVersions(updatedBootDriveVersion, updatedBootDriveUpdateInfo.cloudPeVersion);
+      console.log('reloadBootDrive: 版本比较结果 -', {
+        currentVersion: updatedBootDriveVersion,
+        latestVersion: updatedBootDriveUpdateInfo.cloudPeVersion,
+        needsUpdate
+      });
       setBootDriveUpdateAvailable(needsUpdate);
       
       const currentVersionWithoutV = updatedBootDriveVersion.replace(/^v/i, '');
@@ -413,11 +427,21 @@ const reloadBootDrive = async (driveLetter: string, skipCheck: boolean = false) 
       });
       
       setBootDriveUpdateCanSkip(!isCurrentVersionInUpdateList);
+      console.log('reloadBootDrive: 更新状态已设置 - bootDriveUpdateAvailable:', needsUpdate);
+    } else {
+      // 如果没有更新信息，默认设置为false（不需要更新）
+      console.log('reloadBootDrive: 没有版本或更新信息，设置为不需要更新');
+      setBootDriveUpdateAvailable(false);
+      setBootDriveUpdateCanSkip(true);
     }
+    
+    console.log('reloadBootDrive: 完成');
   } catch (error) {
     console.error('重新加载启动盘失败:', error);
     setBootDrive(null);
     setBootDriveVersion(null);
+    setBootDriveUpdateAvailable(false);
+    setBootDriveUpdateCanSkip(true);
   }
 };
 
@@ -498,6 +522,7 @@ const reloadBootDrive = async (driveLetter: string, skipCheck: boolean = false) 
     bootDriveVersion,
     isLoadingBootDriveVersion,
     bootDriveUpdateAvailable,
+    setBootDriveUpdateAvailable,
     bootDriveUpdateCanSkip,
     isCheckingBootDriveUpdate,
     isNetworkConnected,
