@@ -13,9 +13,7 @@
   English | [简体中文](README.md)
 </div>
 
-<div align="center">
-  <img width="700" alt="Cloud-PE One Interface" src="https://github.com/user-attachments/assets/8be153f0-a354-4854-8232-15a807e64529" />
-</div>
+<div align="center"><img width="1406" height="936" alt="Cloud-PE One" src="https://github.com/user-attachments/assets/25b82e92-03f3-44f2-b24c-4cb7e84c3e00" /></div>
 
 ## ✨ Features
 
@@ -143,3 +141,4 @@ For questions or suggestions, please contact us via:
   <sub>Copyright © 2025-Present Cloud-PE Dev. All rights reserved.</sub>
 
 </div>
+
