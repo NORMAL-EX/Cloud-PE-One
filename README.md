@@ -24,7 +24,6 @@
 - 🌙 **主题切换** - 支持浅色/深色/跟随系统主题
 - 🔄 **自动更新** - 应用内自动检测并更新到最新版本
 - 📴 **离线模式** - 无网络连接时仍可使用基础功能
-- 🎨 **Mica 效果** - Windows 11 下支持 Mica 透明效果
 
 ## 🛠️ 技术栈
 
@@ -140,4 +139,5 @@ Cloud-PE-One/
 <div align="center">
   <sub>Copyright © 2025-Present Cloud-PE Dev. All rights reserved.</sub>
 </div>
+
 
