@@ -24,7 +24,6 @@
 - 🌙 **Theme Switching** - Light/Dark/System theme support
 - 🔄 **Auto Updates** - Automatic in-app detection and updates
 - 📴 **Offline Mode** - Basic functionality available without internet connection
-- 🎨 **Mica Effects** - Mica transparency effects on Windows 11
 
 ## 🛠️ Tech Stack
 
@@ -141,4 +140,5 @@ For questions or suggestions, please contact us via:
   <sub>Copyright © 2025-Present Cloud-PE Dev. All rights reserved.</sub>
 
 </div>
+
 
