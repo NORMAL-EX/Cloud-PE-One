@@ -494,12 +494,13 @@ const PluginsMarketPage: React.FC = () => {
     return (
       <div className="p-6 h-[84vh] flex flex-col">
         <h3 className="text-2xl font-semibold mb-6">插件市场</h3>
-        <div className="flex-1 flex justify-center items-center">
-          <div className="text-center">
-            <AlertCircle className="w-16 h-16 mb-2" />
+        <div className="flex-1 flex justify-center">
+          <div className="text-center" style={{marginTop: 36}}>
+            <AlertCircle className="mx-auto w-16 h-16 mb-6" />
             <h2 className="text-2xl font-semibold mb-2 text-center">出现错误</h2>
             <p className="text-muted-foreground">无法获取到插件列表，插件市场加载失败</p>
           </div>
+
         </div>
       </div>
     );
